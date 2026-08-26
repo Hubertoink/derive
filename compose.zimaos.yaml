@@ -24,6 +24,7 @@ services:
 
   api:
     image: ghcr.io/hubertoink/derive-api:latest
+    pull_policy: always
     restart: unless-stopped
     environment:
       DATABASE_URL: "postgresql+psycopg://reado:__REPLACE_WITH_A_LONG_DATABASE_PASSWORD__@postgres:5432/reado"
@@ -49,6 +50,7 @@ services:
 
   worker:
     image: ghcr.io/hubertoink/derive-api:latest
+    pull_policy: always
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
     environment:
@@ -63,6 +65,7 @@ services:
 
   web:
     image: ghcr.io/hubertoink/derive-web:latest
+    pull_policy: always
     restart: unless-stopped
     environment:
       CURATOR_API_URL: "http://api:8000"
