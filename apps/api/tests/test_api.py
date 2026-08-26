@@ -9,16 +9,20 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.main import app, get_session, stream_with_keepalives
+from app.main import app, get_session, migrate_legacy_data, stream_with_keepalives
 from app.auth import current_user
 from app.models import (
     Article,
+    AppSettings,
     Artwork,
+    Author,
     PodcastEpisode,
+    Source,
     User,
     UserArticle,
     UserArtwork,
     UserPodcastEpisode,
+    UserSourceMemory,
 )
 from app.discovery import DiscoveryRunResult
 from app.seed import seed_demo_content
@@ -345,4 +349,103 @@ def test_podcast_and_artwork_feedback_use_the_same_explicit_vocabulary(isolated_
     assert profile["stats"]["feedback_count"] == 2
     assert len(profile["podcast_feedback"]) == 1
     assert len(profile["artwork_feedback"]) == 1
+
+
+def test_legacy_migration_never_claims_another_users_catalog():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    with Session(engine) as session:
+        admin = User(username="admin-reader", email="admin@example.org", password_hash="unused", role="admin")
+        member = User(username="member-reader", email="member@example.org", password_hash="unused")
+        author = Author(name="Test Autor")
+        foreign_source = Source(name="ZDF", url="https://zdf.de")
+        admin_source = Source(name="The Guardian", url="https://theguardian.com")
+        foreign_article = Article(
+            canonical_url="https://zdf.de/member-article",
+            title="Nur fuer den anderen Nutzer",
+            content_html="<p>Text</p>",
+            published_at=now,
+            reading_minutes=12,
+            discovery_method="ai_web",
+            discovered_at=now,
+            author=author,
+            source=foreign_source,
+        )
+        engaged_overlap = Article(
+            canonical_url="https://zdf.de/shared-article",
+            title="Vom Admin bereits gelesen",
+            content_html="<p>Text</p>",
+            published_at=now,
+            reading_minutes=12,
+            discovery_method="ai_web",
+            discovered_at=now,
+            author=author,
+            source=admin_source,
+        )
+        legacy_unowned = Article(
+            canonical_url="https://example.org/legacy",
+            title="Alter Einzelnutzer-Artikel",
+            content_html="<p>Text</p>",
+            published_at=now,
+            reading_minutes=10,
+            author=author,
+            source=admin_source,
+        )
+        session.add_all([admin, member, foreign_article, engaged_overlap, legacy_unowned])
+        session.flush()
+        settings = AppSettings(user_id=admin.id, ownership_repair_completed=False)
+        session.add(settings)
+        session.add_all([
+            UserArticle(user_id=member.id, article_id=foreign_article.id, discovered_at=now),
+            UserArticle(user_id=member.id, article_id=engaged_overlap.id, discovered_at=now),
+        ])
+        session.flush()
+        leaked_link = UserArticle(user_id=admin.id, article_id=foreign_article.id, discovered_at=now)
+        kept_link = UserArticle(
+            user_id=admin.id,
+            article_id=engaged_overlap.id,
+            discovered_at=now,
+            is_read=True,
+            read_at=now,
+        )
+        session.add_all([leaked_link, kept_link, UserSourceMemory(
+            user_id=admin.id,
+            domain="zdf.de",
+            display_name="ZDF",
+            observed_count=2,
+            source_score=20,
+        )])
+        session.commit()
+
+        migrate_legacy_data(session, admin)
+
+        assert session.scalar(select(UserArticle.id).where(
+            UserArticle.user_id == admin.id,
+            UserArticle.article_id == foreign_article.id,
+        )) is None
+        assert session.scalar(select(UserArticle.id).where(
+            UserArticle.user_id == member.id,
+            UserArticle.article_id == foreign_article.id,
+        )) is not None
+        assert session.scalar(select(UserArticle.id).where(
+            UserArticle.user_id == admin.id,
+            UserArticle.article_id == engaged_overlap.id,
+        )) is not None
+        assert session.scalar(select(UserArticle.id).where(
+            UserArticle.user_id == admin.id,
+            UserArticle.article_id == legacy_unowned.id,
+        )) is not None
+        assert session.scalar(select(UserSourceMemory.id).where(
+            UserSourceMemory.user_id == admin.id,
+            UserSourceMemory.domain == "zdf.de",
+        )) is None
+        assert settings.ownership_repair_completed is True
+
+        # A later restart must not attach the member's article again.
+        migrate_legacy_data(session, admin)
+        assert session.scalar(select(UserArticle.id).where(
+            UserArticle.user_id == admin.id,
+            UserArticle.article_id == foreign_article.id,
+        )) is None
 

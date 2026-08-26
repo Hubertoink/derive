@@ -287,6 +287,7 @@ def ensure_schema() -> None:
         "soul_markdown": "TEXT NOT NULL DEFAULT ''",
         "soul_revision": "INTEGER NOT NULL DEFAULT 0",
         "art_enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
+        "ownership_repair_completed": "BOOLEAN NOT NULL DEFAULT FALSE",
         "featured_artwork_id": "INTEGER REFERENCES artworks(id) ON DELETE SET NULL",
     }
     run_columns = {column["name"] for column in inspect(engine).get_columns("discovery_runs")}
@@ -362,17 +363,127 @@ def ensure_schema() -> None:
             """))
 
 
+def repair_legacy_cross_user_links(session: Session, bootstrap_user: User) -> dict[str, int]:
+    """Remove conservative matches created by the repeated legacy migration.
+
+    Older releases attached every global catalog item to the first admin on
+    every API restart. A link is considered migration leakage only when a
+    different user owned the same item first and the admin has neither saved,
+    read nor explicitly rated it. The repair is recorded per installation so
+    legitimate future overlap between two searches remains untouched.
+    """
+    settings = session.scalar(select(AppSettings).where(AppSettings.user_id == bootstrap_user.id))
+    if settings is None:
+        settings = AppSettings(user_id=bootstrap_user.id)
+        session.add(settings)
+        session.flush()
+    if settings.ownership_repair_completed:
+        return {"articles": 0, "podcasts": 0, "feeds": 0, "sources": 0}
+
+    removed = {"articles": 0, "podcasts": 0, "feeds": 0, "sources": 0}
+    for link in session.scalars(select(UserArticle).where(UserArticle.user_id == bootstrap_user.id)).all():
+        earlier_other = session.scalar(
+            select(UserArticle.id).where(
+                UserArticle.article_id == link.article_id,
+                UserArticle.user_id != bootstrap_user.id,
+                UserArticle.id < link.id,
+            ).limit(1)
+        )
+        has_feedback = session.scalar(select(UserArticleFeedback.id).where(
+            UserArticleFeedback.user_id == bootstrap_user.id,
+            UserArticleFeedback.article_id == link.article_id,
+        ).limit(1))
+        if earlier_other is not None and not link.is_read and not link.is_saved and has_feedback is None:
+            session.delete(link)
+            removed["articles"] += 1
+
+    for link in session.scalars(select(UserPodcastEpisode).where(
+        UserPodcastEpisode.user_id == bootstrap_user.id
+    )).all():
+        earlier_other = session.scalar(
+            select(UserPodcastEpisode.id).where(
+                UserPodcastEpisode.podcast_episode_id == link.podcast_episode_id,
+                UserPodcastEpisode.user_id != bootstrap_user.id,
+                UserPodcastEpisode.id < link.id,
+            ).limit(1)
+        )
+        has_feedback = session.scalar(select(UserPodcastFeedback.id).where(
+            UserPodcastFeedback.user_id == bootstrap_user.id,
+            UserPodcastFeedback.podcast_episode_id == link.podcast_episode_id,
+        ).limit(1))
+        if earlier_other is not None and not link.is_saved and has_feedback is None:
+            session.delete(link)
+            removed["podcasts"] += 1
+
+    for link in session.scalars(select(UserFeed).where(UserFeed.user_id == bootstrap_user.id)).all():
+        earlier_other = session.scalar(
+            select(UserFeed.id).where(
+                UserFeed.feed_id == link.feed_id,
+                UserFeed.user_id != bootstrap_user.id,
+                UserFeed.id < link.id,
+            ).limit(1)
+        )
+        if earlier_other is not None:
+            session.delete(link)
+            removed["feeds"] += 1
+
+    # Flush the catalog corrections before rebuilding the visible source
+    # counts. Manual source rules and sources with explicit feedback survive.
+    session.flush()
+    source_counts: Counter[str] = Counter()
+    source_rows = session.execute(
+        select(Article, Source)
+        .join(UserArticle, UserArticle.article_id == Article.id)
+        .join(Source, Source.id == Article.source_id)
+        .where(UserArticle.user_id == bootstrap_user.id, Article.discovery_method == "ai_web")
+    ).all()
+    for article, source in source_rows:
+        domain = normalize_source_domain(source.url) or normalize_source_domain(article.canonical_url)
+        if domain:
+            source_counts[domain] += 1
+    for memory in session.scalars(select(UserSourceMemory).where(
+        UserSourceMemory.user_id == bootstrap_user.id
+    )).all():
+        if memory.manual_override or memory.origin == "manual":
+            continue
+        count = source_counts.get(memory.domain, 0)
+        if count == 0 and not memory.positive_count and not memory.negative_count:
+            session.delete(memory)
+            removed["sources"] += 1
+            continue
+        memory.observed_count = count
+
+    settings.ownership_repair_completed = True
+    logger.info(
+        "Repaired legacy cross-user links for bootstrap user %s: %s",
+        bootstrap_user.id,
+        removed,
+    )
+    return removed
+
+
 def migrate_legacy_data(session: Session, bootstrap_user: User | None = None) -> None:
-    """Attach the old single-reader library to the initial admin exactly once."""
+    """Attach only genuinely unowned legacy rows to the initial admin."""
     user = bootstrap_user or session.scalar(select(User).order_by(User.id).limit(1))
     if user is None:
         return
 
+    # First claim only records that predate user ownership. These nullable
+    # rows are the reliable marker of the original single-reader schema.
+    for settings in session.scalars(select(AppSettings).where(AppSettings.user_id.is_(None))).all():
+        settings.user_id = user.id
+    for message in session.scalars(select(DiscoveryChatMessage).where(DiscoveryChatMessage.user_id.is_(None))).all():
+        message.user_id = user.id
+    for run in session.scalars(select(DiscoveryRun).where(DiscoveryRun.user_id.is_(None))).all():
+        run.user_id = user.id
+    session.flush()
+    repair_legacy_cross_user_links(session, user)
+
     # The legacy columns remain for backwards-compatible local DB upgrades;
     # all requests now read state from the user-specific tables below.
-    known_article_ids = set(session.scalars(select(UserArticle.article_id).where(UserArticle.user_id == user.id)).all())
     for article in session.scalars(select(Article)).all():
-        if article.id not in known_article_ids:
+        owner = session.scalar(select(UserArticle.id).where(UserArticle.article_id == article.id).limit(1))
+        if owner is None:
             session.add(UserArticle(
                 user_id=user.id,
                 article_id=article.id,
@@ -380,26 +491,21 @@ def migrate_legacy_data(session: Session, bootstrap_user: User | None = None) ->
                 is_saved=article.is_saved,
                 discovered_at=article.discovered_at or article.published_at,
             ))
-    known_podcast_ids = set(session.scalars(select(UserPodcastEpisode.podcast_episode_id).where(UserPodcastEpisode.user_id == user.id)).all())
     for episode in session.scalars(select(PodcastEpisode)).all():
-        if episode.id not in known_podcast_ids:
+        owner = session.scalar(select(UserPodcastEpisode.id).where(
+            UserPodcastEpisode.podcast_episode_id == episode.id
+        ).limit(1))
+        if owner is None:
             session.add(UserPodcastEpisode(
                 user_id=user.id,
                 podcast_episode_id=episode.id,
                 is_saved=episode.is_saved,
                 discovered_at=episode.discovered_at or episode.published_at,
             ))
-    known_feed_ids = set(session.scalars(select(UserFeed.feed_id).where(UserFeed.user_id == user.id)).all())
     for feed in session.scalars(select(Feed)).all():
-        if feed.id not in known_feed_ids:
+        owner = session.scalar(select(UserFeed.id).where(UserFeed.feed_id == feed.id).limit(1))
+        if owner is None:
             session.add(UserFeed(user_id=user.id, feed_id=feed.id))
-
-    for settings in session.scalars(select(AppSettings).where(AppSettings.user_id.is_(None))).all():
-        settings.user_id = user.id
-    for message in session.scalars(select(DiscoveryChatMessage).where(DiscoveryChatMessage.user_id.is_(None))).all():
-        message.user_id = user.id
-    for run in session.scalars(select(DiscoveryRun).where(DiscoveryRun.user_id.is_(None))).all():
-        run.user_id = user.id
 
     existing_feedback = set(session.scalars(select(UserArticleFeedback.article_id).where(UserArticleFeedback.user_id == user.id)).all())
     for feedback in session.scalars(select(ArticleFeedback)).all():

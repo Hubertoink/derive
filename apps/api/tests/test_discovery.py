@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.chat import podcast_only_request, requested_podcast_count
-from app.discovery import _candidate_text, _podcast_prompt, _prompt, _rate_limit_delay, _source_memory_guidance, _verified_podcast_candidate, candidate_batch_sizes, import_candidates, import_podcast_candidates, normalize_source_domain, reading_memory
+from app.discovery import _candidate_text, _podcast_prompt, _prompt, _rate_limit_delay, _source_memory_guidance, _verified_podcast_candidate, candidate_batch_sizes, import_candidates, import_podcast_candidates, normalize_source_domain, reading_memory, serialize_source_memory
 from app.models import (
     AppSettings,
     Article,
@@ -66,6 +66,25 @@ def test_source_memory_rotates_sources_and_respects_manual_deprioritization():
         assert len(first_domains) == 8
         assert "magazin-9.org" in second_domains
         assert first_guidance != second_guidance
+
+
+def test_source_memory_is_strictly_scoped_to_its_user():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        admin = User(username="admin-source", email="admin-source@example.org", password_hash="unused", role="admin")
+        member = User(username="member-source", email="member-source@example.org", password_hash="unused")
+        session.add_all([admin, member])
+        session.flush()
+        session.add_all([
+            UserSourceMemory(user_id=admin.id, domain="theguardian.com", display_name="The Guardian", observed_count=2),
+            UserSourceMemory(user_id=member.id, domain="zdf.de", display_name="ZDF", observed_count=1),
+        ])
+        session.commit()
+
+        assert [item["domain"] for item in serialize_source_memory(session, admin)] == ["theguardian.com"]
+        assert [item["domain"] for item in serialize_source_memory(session, member)] == ["zdf.de"]
 
 
 def test_discovery_honours_rate_limit_reset_headers():

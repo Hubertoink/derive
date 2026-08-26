@@ -355,6 +355,7 @@ class AppSettings(Base):
     soul_markdown: Mapped[str] = mapped_column(Text, default="")
     soul_revision: Mapped[int] = mapped_column(Integer, default=0)
     art_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    ownership_repair_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     featured_artwork_id: Mapped[int | None] = mapped_column(
         ForeignKey("artworks.id", ondelete="SET NULL"), nullable=True
     )
