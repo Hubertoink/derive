@@ -14,7 +14,7 @@ services:
       # Use letters, numbers and hyphens only; it is also part of DATABASE_URL.
       POSTGRES_PASSWORD: "__REPLACE_WITH_A_LONG_DATABASE_PASSWORD__"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U reado -d reado"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -83,8 +83,9 @@ networks:
   derive:
 
 volumes:
-  # Named volumes survive container restarts and `docker compose down`.
+  # Keep the Docker volume name stable when ZimaOS recreates the custom app.
   derive-postgres-data:
+    name: peaceful_stylianos_derive-postgres-data
 
 x-casaos:
   architectures:

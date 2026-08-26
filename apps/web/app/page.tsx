@@ -5,7 +5,6 @@ import { getHome, getSetup } from "./server-api";
 import { ArticleRow, formatDiscoveryDate } from "./components/ArticleRow";
 import { HomeArticleSelections } from "./components/HomeArticleSelections";
 import { CopyLinkButton } from "./components/CopyLinkButton";
-import { FloatingMenu } from "./components/FloatingMenu";
 import { PodcastRecommendations } from "./components/PodcastRecommendations";
 import { SiteHeader } from "./components/SiteHeader";
 import { SetupWizard } from "./components/SetupWizard";
@@ -164,7 +163,6 @@ export default async function HomePage() {
         <Link href="/archiv">Liste öffnen →</Link>
       </section>
 
-      <FloatingMenu />
     </main>
   );
 }

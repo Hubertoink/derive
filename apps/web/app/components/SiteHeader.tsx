@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BrandLogo } from "./BrandLogo";
+import { FloatingMenu } from "./FloatingMenu";
 
 export type SiteSection = "home" | "archive" | "profile" | "curator" | "settings" | null;
 
@@ -14,16 +15,19 @@ const navigation = [
 
 export function SiteHeader({ active, dateLabel }: { active: SiteSection; dateLabel?: string }) {
   return (
-    <header className="site-header">
-      <BrandLogo />
-      <nav aria-label="Hauptnavigation">
-        {navigation.map((item) => (
-          <Link className={active === item.key ? "is-active" : undefined} href={item.href} key={item.key}>
-            {item.label}
-          </Link>
-        ))}
-      </nav>
-      {dateLabel ? <time className="date-label" dateTime={new Date().toISOString().slice(0, 10)}>{dateLabel}</time> : null}
-    </header>
+    <>
+      <header className="site-header">
+        <BrandLogo />
+        <nav aria-label="Hauptnavigation">
+          {navigation.map((item) => (
+            <Link className={active === item.key ? "is-active" : undefined} href={item.href} key={item.key}>
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        {dateLabel ? <time className="date-label" dateTime={new Date().toISOString().slice(0, 10)}>{dateLabel}</time> : null}
+      </header>
+      <FloatingMenu />
+    </>
   );
 }
