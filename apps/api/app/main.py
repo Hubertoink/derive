@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime, parsedate_to_datetime
@@ -6,7 +7,7 @@ import hashlib
 import logging
 import os
 import re
-from typing import Annotated, Literal
+from typing import Annotated, AsyncGenerator, Literal
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -46,6 +47,35 @@ from .secrets import decrypt_secret, encrypt_secret
 from .visuals import assign_article_visual
 
 logger = logging.getLogger(__name__)
+
+
+async def stream_with_keepalives(
+    events: AsyncGenerator[dict, None], heartbeat_seconds: float = 10.0
+) -> AsyncGenerator[dict, None]:
+    """Keep a discovery response alive while an upstream AI request is pending."""
+    iterator = events.__aiter__()
+    pending_event: asyncio.Task[dict] | None = None
+    try:
+        # Flush response headers and a first body byte immediately. This avoids
+        # idle timeouts before OpenAI returns the first search result.
+        yield {"type": "keepalive"}
+        pending_event = asyncio.create_task(anext(iterator))
+        while True:
+            done, _ = await asyncio.wait({pending_event}, timeout=heartbeat_seconds)
+            if not done:
+                yield {"type": "keepalive"}
+                continue
+            try:
+                yield pending_event.result()
+            except StopAsyncIteration:
+                return
+            pending_event = asyncio.create_task(anext(iterator))
+    finally:
+        if pending_event is not None and not pending_event.done():
+            pending_event.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending_event
+        await iterator.aclose()
 
 
 def get_session():
@@ -1005,7 +1035,9 @@ async def run_discovery_now(
     async def events():
         imported_count = input_tokens = output_tokens = total_tokens = 0
         try:
-            async for event in run_discovery_stream(session, settings, prompt, user=user):
+            async for event in stream_with_keepalives(
+                run_discovery_stream(session, settings, prompt, user=user)
+            ):
                 if event.get("type") == "progress":
                     imported_count = int(event.get("found_count", imported_count))
                     input_tokens = int(event.get("input_tokens", input_tokens))

@@ -166,7 +166,7 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
       setProfile(next.profile);
       setNotice(
         next.recovered
-          ? `${next.imported || partialImported} Artikel wurden bereits gespeichert. Die Verbindung wurde unterbrochen; du kannst die Suche erneut starten.`
+          ? `${next.imported || partialImported} Artikel wurden gespeichert. Die Anzeige wurde nach dem Suchlauf aktualisiert.`
           : next.imported
           ? `${next.imported} neue ${next.imported === 1 ? "Empfehlung" : "Empfehlungen"} gefunden.`
           : "Heute ist nichts Neues durch den Qualitätsfilter gekommen."

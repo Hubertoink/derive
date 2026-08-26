@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 import httpx
 import pytest
@@ -6,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.main import app, get_session
+from app.main import app, get_session, stream_with_keepalives
 from app.auth import current_user
 from app.models import Article, User, UserArticle
 from app.seed import seed_demo_content
@@ -165,4 +167,22 @@ def test_discovery_explains_when_web_search_is_not_configured(isolated_client):
     status = isolated_client.get("/api/v1/discovery").json()
     assert status["runs"][0]["trigger"] == "manual"
     assert status["runs"][0]["status"] == "failed"
+
+
+def test_discovery_stream_sends_keepalives_while_waiting_for_ai():
+    async def slow_events():
+        await asyncio.sleep(0.03)
+        yield {"type": "done", "imported": 2}
+
+    async def collect_events():
+        return [
+            event
+            async for event in stream_with_keepalives(slow_events(), heartbeat_seconds=0.01)
+        ]
+
+    events = asyncio.run(collect_events())
+
+    assert events[0] == {"type": "keepalive"}
+    assert {"type": "keepalive"} in events[1:]
+    assert events[-1] == {"type": "done", "imported": 2}
 
