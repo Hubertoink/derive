@@ -43,15 +43,3 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.title=dérive ${{ matrix.component }}
-
-  make-public:
-    name: Make packages public
-    needs: publish
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set the GHCR package visibility
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method PATCH "/user/packages/container/derive-api" -f visibility=public
-          gh api --method PATCH "/user/packages/container/derive-web" -f visibility=public
