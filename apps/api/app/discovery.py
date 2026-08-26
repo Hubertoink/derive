@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from .feeds import plain_text, validate_public_url
 from .models import AppSettings, Article, ArticleFeedback, Author, PodcastEpisode, Source, User, UserArticle, UserArticleFeedback, UserPodcastEpisode, UserSourceMemory
 from .secrets import decrypt_secret
+from .spotify import SpotifyError, search_spotify_episodes, spotify_is_configured
 from .visuals import refresh_hero_visual
 
 
@@ -636,17 +637,28 @@ async def request_podcast_candidates(
     reader_memory: str = "",
     max_podcasts: int = MAX_PODCASTS_PER_RUN,
 ) -> tuple[list[dict], tuple[int, int, int]]:
-    """Run one deliberately small podcast search beside the article batches."""
+    """Find podcasts without ever passing Spotify metadata to an AI model."""
     api_key = decrypt_secret(settings.ai_api_key_encrypted)
     if settings.ai_provider != "openai" or not api_key or not settings.ai_base_url or not settings.ai_model:
         raise DiscoveryError("Die Podcast-Suche benötigt eine vollständig eingerichtete OpenAI-Verbindung.")
     requested = max(1, min(max_podcasts, MAX_PODCASTS_PER_RUN))
+    spotify_candidates: list[dict] = []
+    if spotify_is_configured(settings):
+        try:
+            spotify_candidates = await search_spotify_episodes(settings, prompt_override, requested)
+        except SpotifyError as error:
+            # Spotify enriches the catalogue. A temporary API error must not
+            # prevent the existing web-based podcast search from working.
+            logger.warning("Optional Spotify podcast search failed: %s", error)
+    remaining = requested - len(spotify_candidates)
+    if remaining <= 0:
+        return spotify_candidates[:requested], (0, 0, 0)
     body = {
         "model": settings.ai_model,
-        "input": _podcast_prompt(settings, prompt_override, reader_memory, requested),
+        "input": _podcast_prompt(settings, prompt_override, reader_memory, remaining),
         "tools": [{"type": "web_search"}],
         "tool_choice": "auto",
-        "max_tool_calls": requested,
+        "max_tool_calls": remaining,
         "include": ["web_search_call.action.sources"],
         "store": False,
         "text": {
@@ -670,11 +682,20 @@ async def request_podcast_candidates(
                 payload = response.json()
                 result = json.loads(_output_text(payload))
                 podcasts = result.get("podcasts", []) if isinstance(result, dict) else []
-                raw_candidates = (podcasts if isinstance(podcasts, list) else [])[:requested]
+                raw_candidates = (podcasts if isinstance(podcasts, list) else [])[:remaining]
                 checks = await asyncio.gather(
                     *(_verified_podcast_candidate(client, candidate) for candidate in raw_candidates)
                 )
-                return [candidate for candidate in checks if candidate is not None][:requested], _usage(payload)
+                candidates = spotify_candidates + [candidate for candidate in checks if candidate is not None]
+                seen_urls: set[str] = set()
+                unique_candidates = []
+                for candidate in candidates:
+                    url = str(candidate.get("url", ""))
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    unique_candidates.append(candidate)
+                return unique_candidates[:requested], _usage(payload)
             except httpx.HTTPStatusError as error:
                 if error.response.status_code == 429 and attempt < RATE_LIMIT_RETRIES:
                     await asyncio.sleep(_rate_limit_delay(error.response, attempt))

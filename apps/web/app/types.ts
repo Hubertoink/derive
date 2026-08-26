@@ -91,6 +91,19 @@ export type AIConnectionResult = {
   message: string;
 };
 
+export type SpotifySetup = {
+  client_id?: string;
+  client_secret?: string;
+  has_client_id?: boolean;
+  has_client_secret?: boolean;
+  configured?: boolean;
+};
+
+export type SpotifyConnectionResult = {
+  connected: boolean;
+  message: string;
+};
+
 export type SetupStatus = {
   setup_completed: boolean;
   display_name: string;
@@ -103,13 +116,15 @@ export type SetupStatus = {
   feed_count: number;
   ai: AISetup;
   pexels: { has_api_key: boolean };
+  spotify: SpotifySetup;
   discovery: DiscoveryProfile;
 };
 
-export type SetupPayload = Omit<SetupStatus, "setup_completed" | "feed_count" | "ai" | "pexels" | "discovery"> & {
+export type SetupPayload = Omit<SetupStatus, "setup_completed" | "feed_count" | "ai" | "pexels" | "spotify" | "discovery"> & {
   discovery_prompt: string;
   ai: AISetup;
   pexels_api_key?: string;
+  spotify: SpotifySetup;
 };
 
 export type DiscoveryProfile = {

@@ -44,6 +44,7 @@ from .auth import COOKIE_NAME, SESSION_TTL_DAYS, bootstrap_admin, create_invitat
 from .models import AppSettings, Article, ArticleFeedback, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserReadingInsight, UserSourceMemory
 from .outbound_feed import build_rss_feed
 from .secrets import decrypt_secret, encrypt_secret
+from .spotify import SpotifyError, spotify_is_configured, test_spotify_connection
 from .visuals import assign_article_visual
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,11 @@ class AISetupRequest(BaseModel):
     api_key: str | None = Field(default=None, max_length=1000)
 
 
+class SpotifySetupRequest(BaseModel):
+    client_id: str | None = Field(default=None, max_length=500)
+    client_secret: str | None = Field(default=None, max_length=1000)
+
+
 class SetupRequest(BaseModel):
     display_name: str = Field(default="", max_length=120)
     preferred_languages: list[str] = Field(min_length=1, max_length=12)
@@ -169,6 +175,7 @@ class SetupRequest(BaseModel):
     theme: Literal["system", "light", "dark"] = "system"
     ai: AISetupRequest = Field(default_factory=AISetupRequest)
     pexels_api_key: str | None = Field(default=None, max_length=1000)
+    spotify: SpotifySetupRequest = Field(default_factory=SpotifySetupRequest)
 
 
 class DiscoveryProfileUpdate(BaseModel):
@@ -259,6 +266,8 @@ def ensure_schema() -> None:
         "hero_image_alt": "VARCHAR(500)",
         "hero_image_id": "INTEGER",
         "pexels_api_key_encrypted": "TEXT",
+        "spotify_client_id_encrypted": "TEXT",
+        "spotify_client_secret_encrypted": "TEXT",
     }
     run_columns = {column["name"] for column in inspect(engine).get_columns("discovery_runs")}
     run_additions = {
@@ -681,6 +690,11 @@ def serialize_settings(settings: AppSettings, session: Session, user: User) -> d
         "pexels": {
             "has_api_key": bool(settings.pexels_api_key_encrypted or os.getenv("PEXELS_API_KEY", "").strip()),
         },
+        "spotify": {
+            "has_client_id": bool(settings.spotify_client_id_encrypted),
+            "has_client_secret": bool(settings.spotify_client_secret_encrypted),
+            "configured": spotify_is_configured(settings),
+        },
         "discovery": discovery,
     }
 
@@ -786,6 +800,21 @@ async def test_ai_connection(request: AISetupRequest, user: CurrentUserDependenc
     }
 
 
+@app.post("/api/v1/setup/spotify/test")
+async def test_spotify_setup(
+    request: SpotifySetupRequest, user: CurrentUserDependency, session: SessionDependency
+) -> dict:
+    settings = get_or_create_settings(session, user)
+    client_id = (request.client_id or decrypt_secret(settings.spotify_client_id_encrypted) or "").strip()
+    client_secret = (request.client_secret or decrypt_secret(settings.spotify_client_secret_encrypted) or "").strip()
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=422, detail="Für Spotify werden Client-ID und Client Secret benötigt.")
+    try:
+        return await test_spotify_connection(client_id, client_secret)
+    except SpotifyError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
 @app.post("/api/v1/setup")
 async def save_setup(request: SetupRequest, user: CurrentUserDependency, session: SessionDependency) -> dict:
     base_url, model = _normalise_ai(request.ai)
@@ -794,8 +823,11 @@ async def save_setup(request: SetupRequest, user: CurrentUserDependency, session
         request.ai.api_key or settings.ai_api_key_encrypted
     ):
         raise HTTPException(status_code=422, detail="Für OpenAI wird ein API-Schlüssel benötigt.")
+    spotify_client_id = (request.spotify.client_id or decrypt_secret(settings.spotify_client_id_encrypted) or "").strip()
+    spotify_client_secret = (request.spotify.client_secret or decrypt_secret(settings.spotify_client_secret_encrypted) or "").strip()
+    if bool(spotify_client_id) != bool(spotify_client_secret):
+        raise HTTPException(status_code=422, detail="Für Spotify bitte Client-ID und Client Secret gemeinsam eintragen.")
 
-    settings = get_or_create_settings(session, user)
     settings.display_name = " ".join(request.display_name.strip().split())
     settings.preferred_languages_csv = _csv(request.preferred_languages)
     settings.discovery_languages_csv = _csv(request.discovery_languages)
@@ -814,6 +846,10 @@ async def save_setup(request: SetupRequest, user: CurrentUserDependency, session
         settings.ai_api_key_encrypted = encrypt_secret(request.ai.api_key)
     if request.pexels_api_key:
         settings.pexels_api_key_encrypted = encrypt_secret(request.pexels_api_key.strip())
+    if request.spotify.client_id:
+        settings.spotify_client_id_encrypted = encrypt_secret(request.spotify.client_id.strip())
+    if request.spotify.client_secret:
+        settings.spotify_client_secret_encrypted = encrypt_secret(request.spotify.client_secret.strip())
     has_content_source = request.ai.provider != "disabled"
     settings.setup_completed = has_content_source
     session.commit()

@@ -78,6 +78,10 @@ def test_first_start_can_use_ai_without_feeds(isolated_client, monkeypatch):
             "reading_length": "long",
             "theme": "light",
             "pexels_api_key": "pexels-test-secret",
+            "spotify": {
+                "client_id": "spotify-client-id",
+                "client_secret": "spotify-client-secret",
+            },
             "ai": {
                 "provider": "ollama",
                 "base_url": "http://ollama:11434",
@@ -90,7 +94,10 @@ def test_first_start_can_use_ai_without_feeds(isolated_client, monkeypatch):
     assert response.json()["setup_completed"] is True
     assert response.json()["feed_count"] == 0
     assert response.json()["pexels"] == {"has_api_key": True}
+    assert response.json()["spotify"]["has_client_id"] is True
+    assert response.json()["spotify"]["has_client_secret"] is True
     assert "pexels-test-secret" not in response.text
+    assert "spotify-client-secret" not in response.text
 
 
 def test_ai_connection_returns_selectable_models_without_a_preselected_model(isolated_client, monkeypatch):
@@ -128,6 +135,22 @@ def test_ai_connection_returns_selectable_models_without_a_preselected_model(iso
     assert response.json()["connected"] is True
     assert response.json()["model_found"] is False
     assert response.json()["models"] == ["llama3.2", "mistral"]
+
+
+def test_spotify_connection_can_be_checked_without_saving_credentials(isolated_client, monkeypatch):
+    async def fake_spotify_test(client_id, client_secret):
+        assert client_id == "spotify-client-id"
+        assert client_secret == "spotify-client-secret"
+        return {"connected": True, "message": "Spotify-Katalog ist verbunden."}
+
+    monkeypatch.setattr("app.main.test_spotify_connection", fake_spotify_test)
+    response = isolated_client.post(
+        "/api/v1/setup/spotify/test",
+        json={"client_id": "spotify-client-id", "client_secret": "spotify-client-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"connected": True, "message": "Spotify-Katalog ist verbunden."}
 
 
 def test_discovery_profile_can_be_configured_for_longform(isolated_client):

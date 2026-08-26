@@ -1,4 +1,4 @@
-import { AIConnectionResult, AISetup, Article, ArticleFeedback, DiscoveryChatResearch, DiscoveryChatStatus, DiscoveryProfile, DiscoveryProgressEvent, DiscoveryStatus, Home, PodcastEpisode, ReadingProfile, SetupPayload, SetupResult, SetupStatus } from "./types";
+import { AIConnectionResult, AISetup, Article, ArticleFeedback, DiscoveryChatResearch, DiscoveryChatStatus, DiscoveryProfile, DiscoveryProgressEvent, DiscoveryStatus, Home, PodcastEpisode, ReadingProfile, SetupPayload, SetupResult, SetupStatus, SpotifyConnectionResult, SpotifySetup } from "./types";
 
 // Empty by default: Next.js proxies /api/v1 to the internal API container.
 // A public API URL remains possible for local development only.
@@ -71,6 +71,14 @@ export async function testAI(ai: AISetup): Promise<AIConnectionResult> {
   });
   if (!response.ok) return apiError(response);
   return response.json() as Promise<AIConnectionResult>;
+}
+
+export async function testSpotify(spotify: SpotifySetup): Promise<SpotifyConnectionResult> {
+  const response = await browserFetch("/api/v1/setup/spotify/test", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spotify),
+  });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<SpotifyConnectionResult>;
 }
 
 export async function getArticleFeedback(articleId: number): Promise<ArticleFeedback | null> {

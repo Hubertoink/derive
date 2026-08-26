@@ -4,8 +4,8 @@ import { KeyboardEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { saveSetup, testAI } from "../api";
-import { AISetup, SetupStatus } from "../types";
+import { saveSetup, testAI, testSpotify } from "../api";
+import { AISetup, SetupStatus, SpotifySetup } from "../types";
 import { BrandLogo } from "./BrandLogo";
 
 const topics = [
@@ -44,6 +44,7 @@ export function SetupWizard({ initial, onboarding = false }: { initial: SetupSta
   const [readingLength, setReadingLength] = useState(initial.reading_length);
   const [ai, setAI] = useState<AISetup>({ ...initial.ai, api_key: "" });
   const [pexelsApiKey, setPexelsApiKey] = useState("");
+  const [spotify, setSpotify] = useState<SpotifySetup>({ ...initial.spotify, client_id: "", client_secret: "" });
   const [availableModels, setAvailableModels] = useState<string[]>(() => {
     const initialModel = initial.ai.model ? [initial.ai.model] : [];
     return initial.ai.provider === "openai"
@@ -126,6 +127,19 @@ export function SetupWizard({ initial, onboarding = false }: { initial: SetupSta
     }
   }
 
+  async function checkSpotify() {
+    setBusy(true);
+    setNotice("");
+    try {
+      const result = await testSpotify(spotify);
+      setNotice(result.message);
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function finish() {
     if (ai.provider !== "disabled" && (!ai.base_url?.trim() || !ai.model?.trim())) {
       setNotice("Trage für die KI eine Basis-URL und ein Modell ein.");
@@ -148,6 +162,7 @@ export function SetupWizard({ initial, onboarding = false }: { initial: SetupSta
         theme,
         ai: { provider: ai.provider, base_url: ai.base_url, model: ai.model, api_key: ai.api_key },
         pexels_api_key: pexelsApiKey,
+        spotify: { client_id: spotify.client_id, client_secret: spotify.client_secret },
       });
       setTheme(result.theme);
       localStorage.setItem("reado-theme", result.theme);
@@ -215,6 +230,7 @@ export function SetupWizard({ initial, onboarding = false }: { initial: SetupSta
               <div className="ai-test"><button type="button" onClick={checkAI} disabled={busy}>{busy ? "Modelle werden geladen …" : "Verbindung testen & Modelle laden"}</button></div>
             </div> : <div className="ai-disabled-note"><strong>Kein Problem.</strong><p>Du kannst die KI-Verbindung später ergänzen.</p></div>}
             <label className="full-field pexels-key-field"><span>Pexels API-Schlüssel (optional)</span><input type="password" autoComplete="off" value={pexelsApiKey} onChange={(event) => setPexelsApiKey(event.target.value)} placeholder={initial.pexels.has_api_key ? "Gespeicherten Pexels-Schlüssel beibehalten" : "Pexels-Schlüssel für wechselnde Titelbilder"} /><small>Wird verschlüsselt gespeichert. Ohne eigenen Schlüssel bleibt ein vorhandener Umgebungs-Schlüssel aktiv.</small></label>
+            <fieldset className="spotify-fields"><legend>Spotify Podcast-Suche (optional)</legend><p>Ergänzt die KI-Suche um direkte Episoden aus dem Spotify-Katalog. Spotify-Metadaten werden nicht an die KI gesendet.</p><div className="setup-fields two-columns"><label><span>Client ID</span><input type="password" autoComplete="off" value={spotify.client_id ?? ""} onChange={(event) => setSpotify({ ...spotify, client_id: event.target.value })} placeholder={initial.spotify.has_client_id ? "Gespeicherte Client ID beibehalten" : "Spotify Client ID"} /></label><label><span>Client Secret</span><input type="password" autoComplete="off" value={spotify.client_secret ?? ""} onChange={(event) => setSpotify({ ...spotify, client_secret: event.target.value })} placeholder={initial.spotify.has_client_secret ? "Gespeichertes Client Secret beibehalten" : "Spotify Client Secret"} /></label></div><div className="ai-test"><button type="button" onClick={checkSpotify} disabled={busy}>{busy ? "Spotify wird geprüft …" : "Spotify-Verbindung testen"}</button></div><small>Wird verschlüsselt gespeichert. Kein Spotify-Login und keine Redirect-URL nötig.</small></fieldset>
           </> : null}
 
           {notice ? <p className="setup-notice" role="status">{notice}</p> : null}

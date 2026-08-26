@@ -267,6 +267,8 @@ class AppSettings(Base):
     ai_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ai_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     pexels_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spotify_client_id_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spotify_client_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     discovery_prompt: Mapped[str] = mapped_column(
         Text,
         default="Lange Reportagen mit erzählerischer Tiefe, sorgfältiger Recherche und neuen Perspektiven.",
