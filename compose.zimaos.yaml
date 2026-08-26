@@ -1,0 +1,100 @@
+# dérive – ZimaOS deployment
+#
+# Upload this file together with the complete project directory. The build
+# contexts ./apps/api and ./apps/web must be present next to this file.
+# Create the administrator once via DERIVE_BOOTSTRAP_ADMIN_*; later users
+# receive invitation links from the account page.
+name: derive
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reado}
+      POSTGRES_USER: ${POSTGRES_USER:-reado}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-database-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - derive-postgres-data:/var/lib/postgresql/data
+    networks: [derive]
+
+  api:
+    image: derive-api:latest
+    restart: unless-stopped
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reado:${POSTGRES_PASSWORD:-change-this-database-password}@postgres:5432/reado}
+      READO_PUBLIC_URL: ${READO_PUBLIC_URL:-http://localhost:3001}
+      READO_CORS_ORIGINS: ${READO_CORS_ORIGINS:-http://localhost:3001}
+      READO_SECRET_KEY: ${READO_SECRET_KEY:-change-this-to-a-long-random-secret}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      DERIVE_BOOTSTRAP_ADMIN_USERNAME: ${DERIVE_BOOTSTRAP_ADMIN_USERNAME:-Hubertoink}
+      DERIVE_BOOTSTRAP_ADMIN_EMAIL: ${DERIVE_BOOTSTRAP_ADMIN_EMAIL:-hubertoink@outlook.com}
+      DERIVE_BOOTSTRAP_ADMIN_PASSWORD: ${DERIVE_BOOTSTRAP_ADMIN_PASSWORD:-change-this-test-password-now}
+      DERIVE_ALLOW_PUBLIC_SIGNUP: ${DERIVE_ALLOW_PUBLIC_SIGNUP:-false}
+      DERIVE_SESSION_TTL_DAYS: ${DERIVE_SESSION_TTL_DAYS:-14}
+      DERIVE_INVITE_LIFETIME_HOURS: ${DERIVE_INVITE_LIFETIME_HOURS:-48}
+      DERIVE_AUTH_SECURE_COOKIE: ${DERIVE_AUTH_SECURE_COOKIE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [derive]
+
+  worker:
+    image: derive-api:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reado:${POSTGRES_PASSWORD:-change-this-database-password}@postgres:5432/reado}
+      READO_SECRET_KEY: ${READO_SECRET_KEY:-change-this-to-a-long-random-secret}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.database import engine; connection = engine.connect(); connection.exec_driver_sql('SELECT 1'); connection.close()"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+    networks: [derive]
+
+  web:
+    image: derive-web:latest
+    restart: unless-stopped
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    environment:
+      CURATOR_API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: ""
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "3001:3000"
+    networks: [derive]
+
+networks:
+  derive:
+
+volumes:
+  derive-postgres-data:

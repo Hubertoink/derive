@@ -1,0 +1,26 @@
+[project]
+name = "reado-api"
+version = "0.1.0"
+description = "Article-first curation API for ReadO"
+requires-python = ">=3.13"
+dependencies = [
+  "cryptography==45.0.6",
+  "fastapi==0.115.12",
+  "httpx==0.28.1",
+  "psycopg[binary]==3.2.6",
+  "pydantic==2.11.3",
+  "sqlalchemy==2.0.40",
+  "uvicorn[standard]==0.34.2",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+
+[tool.setuptools.packages.find]
+include = ["app*"]

@@ -1,0 +1,118 @@
+name: derive
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reado}
+      POSTGRES_USER: ${POSTGRES_USER:-reado}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-for-local-use}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+
+  api:
+    image: derive-api:latest
+    restart: unless-stopped
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reado:change-me-for-local-use@postgres:5432/reado}
+      READO_PUBLIC_URL: ${READO_PUBLIC_URL:-http://localhost:3001}
+      READO_CORS_ORIGINS: ${READO_CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
+      READO_SECRET_KEY: ${READO_SECRET_KEY:-local-development-only-change-me}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      # Used once to create the first administrator. Later accounts are
+      # invitation based and credentials are stored as Argon2 hashes.
+      DERIVE_BOOTSTRAP_ADMIN_USERNAME: ${DERIVE_BOOTSTRAP_ADMIN_USERNAME:-}
+      DERIVE_BOOTSTRAP_ADMIN_EMAIL: ${DERIVE_BOOTSTRAP_ADMIN_EMAIL:-}
+      DERIVE_BOOTSTRAP_ADMIN_PASSWORD: ${DERIVE_BOOTSTRAP_ADMIN_PASSWORD:-}
+      # Compatibility for an existing one-user .env; the API consumes these
+      # only when no account exists yet.
+      DERIVE_AUTH_USERNAME: ${DERIVE_AUTH_USERNAME:-}
+      DERIVE_AUTH_EMAIL: ${DERIVE_AUTH_EMAIL:-}
+      DERIVE_AUTH_PASSWORD: ${DERIVE_AUTH_PASSWORD:-}
+      DERIVE_ALLOW_PUBLIC_SIGNUP: ${DERIVE_ALLOW_PUBLIC_SIGNUP:-false}
+      DERIVE_SESSION_TTL_DAYS: ${DERIVE_SESSION_TTL_DAYS:-14}
+      DERIVE_INVITE_LIFETIME_HOURS: ${DERIVE_INVITE_LIFETIME_HOURS:-48}
+      DERIVE_AUTH_SECURE_COOKIE: ${DERIVE_AUTH_SECURE_COOKIE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks: [backend]
+
+  worker:
+    image: derive-api:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reado:change-me-for-local-use@postgres:5432/reado}
+      READO_SECRET_KEY: ${READO_SECRET_KEY:-local-development-only-change-me}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from app.database import engine; connection = engine.connect(); connection.exec_driver_sql('SELECT 1'); connection.close()"]
+      interval: 30s
+      timeout: 15s
+      retries: 6
+      start_period: 20s
+    networks: [backend]
+
+  web:
+    image: derive-web:latest
+    restart: unless-stopped
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL-}
+    environment:
+      CURATOR_API_URL: ${CURATOR_API_URL:-http://api:8000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL-}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    ports:
+      - "${WEB_PORT:-3001}:3000"
+    networks: [backend]
+
+  ollama:
+    image: ollama/ollama:0.6.2
+    restart: unless-stopped
+    profiles: ["local-ai"]
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks: [backend]
+
+networks:
+  backend:
+
+volumes:
+  postgres-data:
+  ollama-data:
+

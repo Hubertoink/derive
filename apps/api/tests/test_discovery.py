@@ -1,0 +1,279 @@
+import asyncio
+
+import httpx
+from datetime import UTC, datetime
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+
+from app.database import Base
+from app.chat import podcast_only_request, requested_podcast_count
+from app.discovery import _candidate_text, _podcast_prompt, _prompt, _rate_limit_delay, _source_memory_guidance, _verified_podcast_candidate, candidate_batch_sizes, import_candidates, import_podcast_candidates, normalize_source_domain
+from app.models import AppSettings, Article, PodcastEpisode, User, UserSourceMemory
+from app.publisher_access import import_subscriber_article, update_rule
+from app.visuals import _search_query
+
+
+def test_discovery_uses_three_article_batches():
+    assert candidate_batch_sizes(1) == [1]
+    assert candidate_batch_sizes(3) == [3]
+    assert candidate_batch_sizes(8) == [3, 3, 2]
+
+
+def test_source_domain_normalizes_urls_and_www_prefix():
+    assert normalize_source_domain("https://www.Example.org/reportage?utm_source=ai") == "example.org"
+    assert normalize_source_domain("example.org") == "example.org"
+
+
+def test_source_memory_rotates_sources_and_respects_manual_deprioritization():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        user = User(username="source-user", email="source@example.org", password_hash="not-used")
+        settings = AppSettings(
+            id=1,
+            user_id=1,
+            ai_provider="openai",
+            discovery_deprioritized_sources_csv="zeit.de",
+        )
+        session.add_all([user, settings])
+        session.flush()
+        for index in range(11):
+            session.add(UserSourceMemory(
+                user_id=user.id,
+                domain="zeit.de" if index == 0 else f"magazin-{index}.org",
+                display_name="Die Zeit" if index == 0 else f"Magazin {index}",
+                observed_count=2,
+                source_score=20 - index,
+            ))
+        session.commit()
+
+        first_guidance, first_domains = _source_memory_guidance(session, user, settings)
+        second_guidance, second_domains = _source_memory_guidance(session, user, settings)
+
+        assert "zeit.de" not in first_domains
+        assert len(first_domains) == 8
+        assert "magazin-9.org" in second_domains
+        assert first_guidance != second_guidance
+
+
+def test_discovery_honours_rate_limit_reset_headers():
+    response = httpx.Response(429, headers={"x-ratelimit-reset-requests": "7s"})
+    assert _rate_limit_delay(response, 0) == 7
+
+
+def test_search_copy_removes_markdown_source_urls():
+    text = "Einordnung ([theguardian.com](https://www.theguardian.com/a?utm_source=openai))"
+    assert _candidate_text(text, 1000) == "Einordnung"
+
+
+def test_visual_search_prefers_associative_ai_query():
+    assert _search_query([{
+        "title": "What AI Will Do to Art",
+        "topics": ["Künstliche Intelligenz"],
+        "visual_query": "experimental musician, circular speakers, studio shadows, tactile sound",
+    }]) == "experimental musician, circular speakers, studio shadows, tactile sound"
+
+
+def test_imports_paywalled_recommendation_as_link_metadata(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+
+    with Session(engine) as session:
+        settings = AppSettings(
+            id=1,
+            discovery_min_minutes=15,
+            discovery_max_articles=5,
+            discovery_include_paywalled=True,
+        )
+        session.add(settings)
+        imported = import_candidates(session, settings, [{
+            "title": "Eine lange Reportage",
+            "url": "https://example.com/reportage",
+            "author": "Ada Autorin",
+            "source": "Die Testzeitung",
+            "published_at": "2026-08-23T12:00:00Z",
+            "reading_minutes": 24,
+            "topics": ["Gesellschaft"],
+            "reason": "Passt zum Longform-Profil.",
+            "summary": "Eine kurze Einordnung, aber kein kopierter Volltext.",
+            "access_status": "paywalled",
+        }])
+
+        article = session.scalar(select(Article))
+        assert len(imported) == 1
+        assert article is not None
+        assert article.access_status == "paywalled"
+        assert article.canonical_url == "https://example.com/reportage"
+        assert "kurze Einordnung" in article.content_html
+
+
+def test_one_off_research_does_not_move_the_regular_schedule(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+
+    with Session(engine) as session:
+        settings = AppSettings(id=1, discovery_max_articles=5)
+        session.add(settings)
+        imported = import_candidates(
+            session,
+            settings,
+            [
+                {
+                    "title": f"Text {index}", "url": f"https://example.com/text-{index}",
+                    "author": f"Autorin {index}", "source": "Testquelle",
+                    "published_at": "2026-08-23T12:00:00Z", "reading_minutes": 18,
+                    "topics": ["Demokratie"], "reason": "Passt zur Ad-hoc-Frage.",
+                    "summary": "Kurze Einordnung.", "access_status": "free",
+                }
+                for index in range(4)
+            ],
+            max_articles=3,
+            update_schedule=False,
+        )
+
+        assert len(imported) == 3
+        assert settings.discovery_last_run_at is None
+
+
+def test_import_skips_tracking_url_duplicates(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+
+    candidate = {
+        "title": "Ein Text", "author": "Autor", "source": "Quelle",
+        "published_at": "2026-08-23T12:00:00Z", "reading_minutes": 18,
+        "topics": ["Gesellschaft"], "reason": "Passt.", "summary": "Kurz.",
+        "access_status": "free",
+    }
+    with Session(engine) as session:
+        settings = AppSettings(id=1, discovery_min_minutes=15, discovery_max_articles=5)
+        session.add(settings)
+        first = {**candidate, "url": "https://example.com/text?utm_source=openai"}
+        second = {**candidate, "url": "https://example.com/text?utm_source=retry"}
+        imported = import_candidates(session, settings, [first, second])
+        assert len(imported) == 1
+
+
+def test_podcast_prompt_count_is_explicit_or_selected():
+    assert requested_podcast_count("Bitte suche mir 2 Podcasts über Ambient-Musik.", None) == 2
+    assert requested_podcast_count("Ich hörte einen Podcast; suche mir drei Texte dazu.", None) == 0
+    assert requested_podcast_count("Suche mir passende Podcasts über Demokratie.", None) == 3
+    assert requested_podcast_count("Kannst du mir hierzu Podcasts empfehlen?", None) == 3
+    assert requested_podcast_count("Bitte suche mir 2 Podcasts.", 1) == 1
+    assert requested_podcast_count("Bitte suche mir 2 Podcasts.", 0) == 0
+    assert podcast_only_request("Kannst du mir hierzu Podcasts empfehlen?", 3) is True
+    assert podcast_only_request("Suche mir Podcasts und Artikel hierzu.", 3) is False
+
+
+def test_podcast_prompt_prioritizes_podcasts_over_audio_longreads():
+    prompt = _podcast_prompt(AppSettings(
+        id=1,
+        interests_csv="Gesellschaft",
+        discovery_languages_csv="Deutsch,Englisch",
+        discovery_prompt="Vertiefende Erzählformate",
+    ))
+
+    assert "Bevorzuge eigenständige Podcasts" in prompt
+    assert "ordne diese aber hinter Podcasts ein" in prompt
+    assert "keine reguläre Podcast-Empfehlung" in prompt
+    assert "Notfall" in prompt
+    assert "Audioversion eines Artikels" in prompt
+
+
+def test_article_prompt_deprioritizes_sources_the_reader_already_reads():
+    prompt = _prompt(AppSettings(
+        id=1,
+        interests_csv="Gesellschaft",
+        discovery_languages_csv="Deutsch,Englisch",
+        discovery_prompt="Vertiefende Erzählformate",
+        discovery_deprioritized_sources_csv="zeit.de",
+        discovery_include_paywalled=True,
+    ))
+
+    assert "zeit.de" in prompt
+    assert "priorisiere ausdrücklich unabhängige" in prompt
+
+
+def test_imports_podcast_metadata_and_verified_spotify_link(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+    with Session(engine) as session:
+        imported = import_podcast_candidates(session, [{
+            "title": "Eine lange Folge",
+            "show_name": "Testpodcast",
+            "url": "https://example.com/podcast/folge?utm_source=openai",
+            "spotify_url": "https://open.spotify.com/episode/abc123?utm_source=openai",
+            "published_at": "2026-08-24T08:00:00Z",
+            "duration_minutes": 64,
+            "topics": ["Gesellschaft"],
+            "reason": "Passt zum Lesegeschmack.",
+            "summary": "Ein vertiefendes Gespräch.",
+        }])
+        episode = session.scalar(select(PodcastEpisode))
+        assert len(imported) == 1
+        assert episode is not None
+        assert episode.canonical_url == "https://example.com/podcast/folge"
+        assert episode.spotify_url == "https://open.spotify.com/episode/abc123"
+
+
+def test_podcast_link_check_follows_redirects_and_rejects_gone_episode(monkeypatch):
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/old-episode":
+            return httpx.Response(308, headers={"location": "/gone-episode"})
+        return httpx.Response(410, text="Diese Folge ist nicht mehr verfügbar.")
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await _verified_podcast_candidate(
+                client, {"title": "Alte Folge", "url": "https://example.com/old-episode"}
+            )
+
+    assert asyncio.run(check()) is None
+
+
+def test_podcast_link_check_keeps_reachable_episode(monkeypatch):
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, text="<html><title>Eine Folge</title></html>")
+    )
+
+    async def check():
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await _verified_podcast_candidate(
+                client, {"title": "Eine Folge", "url": "https://example.com/episode"}
+            )
+
+    result = asyncio.run(check())
+    assert result is not None
+    assert result["url"] == "https://example.com/episode"
+
+
+def test_personal_subscription_import_requires_enabled_allowlist(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr("app.publisher_access.validate_public_url", lambda value: value)
+    words = " ".join(f"Wort{i}" for i in range(100))
+
+    with Session(engine) as session:
+        rule = update_rule(session, "zeit", enabled=True, terms_confirmed=True)
+        article = import_subscriber_article(
+            session,
+            url="https://www.zeit.de/kultur/2026-08/reportage",
+            title="Eine abonnierte Reportage",
+            author_name="Ada Autorin",
+            content_html=words,
+            published_at="2026-08-23T12:00:00Z",
+        )
+
+        assert rule.enabled is True
+        assert article.access_status == "subscriber"
+        assert article.fulltext_source == "subscriber_capture"
+        assert article.rights_basis == "personal_subscription"
+        assert article.content_html.startswith("<p>")
