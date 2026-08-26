@@ -12,7 +12,6 @@ export default async function ArchivePage() {
       <SiteHeader active="archive" />
 
       <section className="archive-intro" aria-labelledby="archive-title">
-        <p className="kicker">Alles bleibt auffindbar</p>
         <h1 id="archive-title">Dein Archiv.</h1>
         <p>{articles.length} {articles.length === 1 ? "Text" : "Texte"}, chronologisch aus deinen KI-Funden gesammelt.</p>
       </section>

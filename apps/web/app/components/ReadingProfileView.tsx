@@ -20,7 +20,6 @@ export function ReadingProfileView({ initial }: { initial: ReadingProfile }) {
     <main className="page-shell reading-profile-shell">
       <SiteHeader active="profile" />
       <section className="reading-profile-intro">
-        <p className="kicker">Transparent & lokal</p>
         <h1>Was dérive über deinen Geschmack lernt.</h1>
         <p>Keine psychologische Charakteranalyse: nur nachvollziehbare Lesesignale, die du jederzeit entfernen kannst.</p>
       </section>

@@ -88,7 +88,6 @@ export default async function HomePage() {
       <SiteHeader active="home" dateLabel={todayLabel} />
 
       <section className="home-intro" aria-labelledby="welcome-title">
-        <p className="kicker">Dein Leseraum</p>
         <h1 id="welcome-title">Lies, was nachklingt.</h1>
         <p>Eine persönliche Auswahl für langsame Gedanken und gute Umwege.</p>
       </section>

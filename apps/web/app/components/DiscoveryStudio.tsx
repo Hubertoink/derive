@@ -195,7 +195,6 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
   return (
     <div className="discovery-layout">
       <section className="discovery-intro">
-        <p className="kicker">Dein KI-Kurator</p>
         <h1>Beschreib, was du wirklich lesen willst.</h1>
         <p>
           dérive verbindet deine Leseinteressen mit einer gezielten Websuche nach
