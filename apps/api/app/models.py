@@ -252,7 +252,10 @@ class PublisherAccessRule(Base):
 class AppSettings(Base):
     __tablename__ = "app_settings"
 
-    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    # Settings are user-scoped.  The original single-reader schema used a
+    # fixed row id, but keeping default=1 makes the first invited user collide
+    # with the administrator's settings row.
+    id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     setup_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     display_name: Mapped[str] = mapped_column(String(120), default="")

@@ -36,6 +36,7 @@ def test_admin_can_invite_and_new_user_gets_an_opaque_session():
             assert login.status_code == 200
             assert "derive_session" in login.headers["set-cookie"]
             assert client.get("/api/v1/auth/session").json()["user"]["role"] == "admin"
+            assert client.get("/api/v1/setup").status_code == 200
 
             invitation = client.post("/api/v1/admin/invitations", json={"email": "member@example.org"})
             assert invitation.status_code == 200
@@ -48,5 +49,8 @@ def test_admin_can_invite_and_new_user_gets_an_opaque_session():
             })
             assert register.status_code == 200
             assert member_client.get("/api/v1/auth/session").json()["user"]["username"] == "member"
+            setup = member_client.get("/api/v1/setup")
+            assert setup.status_code == 200
+            assert setup.json()["setup_completed"] is False
     finally:
         app.dependency_overrides.clear()

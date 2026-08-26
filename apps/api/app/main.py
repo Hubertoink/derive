@@ -306,6 +306,18 @@ def ensure_schema() -> None:
         # upgrading an existing local database.
         connection.execute(text("UPDATE app_settings SET discovery_interval_days = 3 WHERE discovery_frequency = 'every_3_days' AND discovery_interval_days = 1"))
         connection.execute(text("UPDATE app_settings SET discovery_interval_days = 7 WHERE discovery_frequency = 'weekly' AND discovery_interval_days = 1"))
+        # The original model inserted the first settings row with a client-side
+        # id=1 default, so PostgreSQL's sequence may still point at 1. Sync it
+        # before user-scoped settings start using normal auto-increment IDs.
+        if engine.dialect.name == "postgresql":
+            connection.execute(text("""
+                SELECT setval(
+                    pg_get_serial_sequence('app_settings', 'id'),
+                    COALESCE(MAX(id), 1),
+                    COUNT(*) > 0
+                )
+                FROM app_settings
+            """))
 
 
 def migrate_legacy_data(session: Session, bootstrap_user: User | None = None) -> None:
