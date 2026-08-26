@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
-import { clearDiscoveryChat, researchDiscoveryChat, sendDiscoveryChat } from "../api";
+import { clearDiscoveryChat, getDiscovery, researchDiscoveryChat, sendDiscoveryChat } from "../api";
 import { Article, DiscoveryChatStatus, DiscoveryStatus, PodcastEpisode } from "../types";
 import { PodcastRecommendations } from "./PodcastRecommendations";
 import { SaveArticleButton } from "./SaveArticleButton";
@@ -78,7 +78,26 @@ export function CuratorChat({
       const resultCount = result.articles.length + result.podcasts.length;
       setNotice(resultCount ? `${result.articles.length} Texte und ${result.podcasts.length} Podcasts sind bereit.` : "Es wurden keine neuen, passenden Originalquellen gefunden.");
     } catch (error) {
-      setNotice((error as Error).message);
+      const message = (error as Error).message || "Die Recherche konnte nicht abgeschlossen werden.";
+      if (!/returned 5\d\d|network|fetch|load failed/i.test(message)) {
+        setNotice(message);
+        return;
+      }
+      try {
+        // A completed search can still have been committed before a proxy or
+        // late response error. Recover the persisted results so the user does
+        // not need to reload the whole page to see them.
+        const recovered = await getDiscovery();
+        setResearchArticles(recovered.articles);
+        setResearchPodcasts(recovered.podcasts);
+        onResearchFinished(recovered);
+        const recoveredCount = recovered.articles.length + recovered.podcasts.length;
+        setNotice(recoveredCount
+          ? `${recoveredCount} gespeicherte Ergebnisse geladen. Die Recherche ist abgeschlossen.`
+          : message);
+      } catch {
+        setNotice(message);
+      }
     } finally {
       setBusy(false);
     }

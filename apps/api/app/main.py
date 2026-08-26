@@ -957,6 +957,41 @@ def record_discovery_run(
     session.commit()
 
 
+def record_discovery_run_safely(
+    session: Session,
+    *,
+    trigger: str,
+    status: str,
+    imported_count: int = 0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_tokens: int = 0,
+    message: str | None = None,
+    user: User | None = None,
+) -> None:
+    """Record a run without turning a completed request into a server error.
+
+    Discovery results are committed independently from the run history. A
+    transient database/logging failure must therefore not hide results that
+    have already been saved successfully.
+    """
+    try:
+        record_discovery_run(
+            session,
+            trigger=trigger,
+            status=status,
+            imported_count=imported_count,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            message=message,
+            user=user,
+        )
+    except Exception:
+        session.rollback()
+        logger.exception("Could not record %s discovery run", trigger)
+
+
 def serialize_discovery(settings: AppSettings, session: Session, user: User) -> dict:
     articles = session.scalars(
         user_article_query(user)
@@ -1178,15 +1213,15 @@ async def research_from_discovery_chat(
         }
     except ChatError as error:
         session.rollback()
-        record_discovery_run(session, trigger="chat", status="failed", message=str(error), user=user)
+        record_discovery_run_safely(session, trigger="chat", status="failed", message=str(error), user=user)
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception as error:
         session.rollback()
         logger.exception("Unexpected ad-hoc research failure")
         message = f"Die Ad-hoc-Recherche konnte nicht abgeschlossen werden: {str(error)[:300]}"
-        record_discovery_run(session, trigger="chat", status="failed", message=message, user=user)
+        record_discovery_run_safely(session, trigger="chat", status="failed", message=message, user=user)
         raise HTTPException(status_code=422, detail=message) from error
-    record_discovery_run(
+    record_discovery_run_safely(
         session,
         trigger="chat",
         status="success",

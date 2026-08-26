@@ -11,6 +11,7 @@ from app.database import Base
 from app.main import app, get_session, stream_with_keepalives
 from app.auth import current_user
 from app.models import Article, User, UserArticle
+from app.discovery import DiscoveryRunResult
 from app.seed import seed_demo_content
 
 
@@ -208,4 +209,24 @@ def test_discovery_stream_sends_keepalives_while_waiting_for_ai():
     assert events[0] == {"type": "keepalive"}
     assert {"type": "keepalive"} in events[1:]
     assert events[-1] == {"type": "done", "imported": 2}
+
+
+def test_chat_research_keeps_response_successful_if_run_log_fails(isolated_client, monkeypatch):
+    async def fake_chat_research(*_args, **_kwargs):
+        return DiscoveryRunResult(articles=[], podcasts=[])
+
+    def fail_to_record(*_args, **_kwargs):
+        raise RuntimeError("temporary run-log failure")
+
+    monkeypatch.setattr("app.main.chat_research", fake_chat_research)
+    monkeypatch.setattr("app.main.record_discovery_run", fail_to_record)
+
+    response = isolated_client.post(
+        "/api/v1/discovery/chat/research",
+        json={"message": "Suche einen langen Text über Stadtentwicklung."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["articles"] == []
+    assert response.json()["podcasts"] == []
 
