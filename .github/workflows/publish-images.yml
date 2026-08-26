@@ -40,8 +40,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/derive-${{ matrix.component }}:latest
-            ghcr.io/${{ github.repository_owner }}/derive-${{ matrix.component }}:${{ github.sha }}
+            ghcr.io/hubertoink/derive-${{ matrix.component }}:latest
+            ghcr.io/hubertoink/derive-${{ matrix.component }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.title=dérive ${{ matrix.component }}
