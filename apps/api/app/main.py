@@ -306,13 +306,20 @@ def ensure_schema() -> None:
         # upgrading an existing local database.
         connection.execute(text("UPDATE app_settings SET discovery_interval_days = 3 WHERE discovery_frequency = 'every_3_days' AND discovery_interval_days = 1"))
         connection.execute(text("UPDATE app_settings SET discovery_interval_days = 7 WHERE discovery_frequency = 'weekly' AND discovery_interval_days = 1"))
-        # The original model inserted the first settings row with a client-side
-        # id=1 default, so PostgreSQL's sequence may still point at 1. Sync it
-        # before user-scoped settings start using normal auto-increment IDs.
+        # The original model used a client-side id=1 default. Existing
+        # PostgreSQL installations therefore have no server-side default (and
+        # sometimes no sequence at all) for app_settings.id. Repair both before
+        # user-scoped settings start using normal auto-increment IDs.
         if engine.dialect.name == "postgresql":
+            connection.execute(text("CREATE SEQUENCE IF NOT EXISTS app_settings_id_seq"))
+            connection.execute(text("ALTER SEQUENCE app_settings_id_seq OWNED BY app_settings.id"))
+            connection.execute(text("""
+                ALTER TABLE app_settings
+                ALTER COLUMN id SET DEFAULT nextval('app_settings_id_seq'::regclass)
+            """))
             connection.execute(text("""
                 SELECT setval(
-                    pg_get_serial_sequence('app_settings', 'id'),
+                    'app_settings_id_seq'::regclass,
                     COALESCE(MAX(id), 1),
                     COUNT(*) > 0
                 )
