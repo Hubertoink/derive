@@ -187,7 +187,6 @@ export function SetupWizard({ initial, onboarding = false }: { initial: SetupSta
       </header>
       <div className="setup-layout">
         <aside className="setup-progress" aria-label="Einrichtungsschritte">
-          <p className="kicker">Dein Leseraum</p>
           <ol>{stepNames.map((name, index) => <li key={name} className={index === step ? "is-current" : index < step ? "is-done" : ""}><button type="button" onClick={() => setStep(index)}><span>0{index + 1}</span>{name}</button></li>)}</ol>
           <p>Deine Einstellungen bleiben in deiner dérive-Instanz. API-Schlüssel werden verschlüsselt gespeichert.</p>
         </aside>
