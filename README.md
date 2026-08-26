@@ -116,6 +116,19 @@ setze `DERIVE_AUTH_SECURE_COOKIE=true` und stelle HTTPS über den ZimaOS-Proxy
 oder einen Reverse Proxy bereit. Die API bleibt dabei im Docker-Netz; der
 Browser spricht über den Web-Container mit ihr.
 
+PostgreSQL ist in dieser Datei bewusst als Bind-Mount unter
+`/DATA/AppData/derive/postgres` eingebunden. Dadurch bleibt die Datenbank beim
+Neuerstellen der benutzerdefinierten App am selben sichtbaren Ort. Lege den
+Ordner vor der ersten Installation einmal an:
+
+```bash
+sudo mkdir -p /DATA/AppData/derive/postgres
+```
+
+Bei einem Update werden nur `api`, `worker` und `web` mit den neuen Images
+neu erstellt. Der Postgres-Dienst und sein Ordner müssen dafür nicht gelöscht
+oder ersetzt werden.
+
 ## KI-Kurator und Quellen
 
 Der KI-Kurator verwaltet pro Konto einen Zeitplan, Suchprofil, Chat-Verlauf,

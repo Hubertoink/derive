@@ -19,7 +19,11 @@ services:
       timeout: 3s
       retries: 10
     volumes:
-      - derive-postgres-data:/var/lib/postgresql/data
+      # Stable host path: survives ZimaOS app recreation and remains visible
+      # in Files under /DATA/AppData/derive/postgres.
+      - type: bind
+        source: /DATA/AppData/derive/postgres
+        target: /var/lib/postgresql/data
     networks: [derive]
 
   api:
@@ -81,11 +85,6 @@ services:
 
 networks:
   derive:
-
-volumes:
-  # Keep the Docker volume name stable when ZimaOS recreates the custom app.
-  derive-postgres-data:
-    name: peaceful_stylianos_derive-postgres-data
 
 x-casaos:
   architectures:
