@@ -41,11 +41,30 @@ export type PodcastEpisode = {
   discovered_at: string;
 };
 
+export type Artwork = {
+  id: number;
+  provider: "artic" | string;
+  provider_id: string;
+  title: string;
+  artist_display: string;
+  date_display: string;
+  medium_display: string;
+  place_of_origin: string;
+  image_url: string;
+  source_url: string;
+  attribution: string;
+  license: string;
+  context: string | null;
+  curation_reason: string | null;
+  is_saved: boolean;
+};
+
 export type Home = {
   for_you: Article[];
   today: Article[];
   discover: Article[];
   podcasts: PodcastEpisode[];
+  artwork: Artwork | null;
   authors: { name: string; count: number }[];
   topics: { name: string; article_count: number }[];
   hero_visual: {
@@ -230,13 +249,39 @@ export type ArticleFeedback = {
   article_title: string;
   source: string;
   rating: "great" | "yes" | "not_quite" | "no";
+  reasons: PreferenceReason[];
   note: string | null;
   created_at: string;
   updated_at: string | null;
 };
 
+export type PreferenceReason = "topic" | "perspective" | "depth" | "style" | "source" | "timing" | "too_shallow" | "too_familiar" | "too_current";
+
+export type PreferenceFeedback = {
+  id: number;
+  podcast_id?: number;
+  artwork_id?: number;
+  title: string;
+  source: string;
+  rating: ArticleFeedback["rating"];
+  reasons: PreferenceReason[];
+  note: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type SoulProfile = {
+  markdown: string;
+  revision: number;
+  art_enabled: boolean;
+  revisions: { revision: number; markdown: string; created_at: string }[];
+};
+
 export type ReadingProfile = {
   stats: { read_count: number; saved_count: number; feedback_count: number };
+  soul: SoulProfile;
   feedback: ArticleFeedback[];
-  insights: { key: string; text: string; basis: string }[];
+  podcast_feedback: PreferenceFeedback[];
+  artwork_feedback: PreferenceFeedback[];
+  insights: { key: string; text: string; basis: string; confidence: "low" | "medium" | "high"; status: "suggested" | "confirmed" }[];
 };

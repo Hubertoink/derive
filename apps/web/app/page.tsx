@@ -4,6 +4,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { getHome, getSetup } from "./server-api";
 import { ArticleRow, formatDiscoveryDate } from "./components/ArticleRow";
 import { HomeArticleSelections } from "./components/HomeArticleSelections";
+import { ArtworkImpression } from "./components/ArtworkImpression";
 import { CopyLinkButton } from "./components/CopyLinkButton";
 import { PodcastRecommendations } from "./components/PodcastRecommendations";
 import { SiteHeader } from "./components/SiteHeader";
@@ -144,6 +145,8 @@ export default async function HomePage() {
       </section>
 
       <HomeArticleSelections weeklyArticles={weeklyArticles} recommendationArticles={recommendationArticles} articlePool={articlePool} topics={home.topics} />
+
+      {home.artwork ? <ArtworkImpression artwork={home.artwork} /> : null}
 
       {home.podcasts.length ? (
         <section className="podcast-section" aria-labelledby="podcast-title">

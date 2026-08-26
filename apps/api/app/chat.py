@@ -17,6 +17,7 @@ from .discovery import (
     request_candidates,
     request_podcast_candidates,
 )
+from .art import refresh_artwork_impression
 from .models import AppSettings, DiscoveryChatMessage, User
 from .visuals import refresh_hero_visual
 from .secrets import decrypt_secret
@@ -68,7 +69,7 @@ def chat_history(session: Session, limit: int = 40, user: User | None = None) ->
     return result
 
 
-def _instructions(settings: AppSettings) -> str:
+def _instructions(settings: AppSettings, reader_memory: str = "") -> str:
     return f"""
 Du bist der persönliche Lesekurator in dérive. Führe ein natürliches, knappes Gespräch,
 um herauszufinden, welche langen Reportagen, Essays und Analysen der Nutzer lesen möchte.
@@ -77,6 +78,7 @@ Aktuelles Suchprofil: {settings.discovery_prompt}
 Mindestlesezeit: {settings.discovery_min_minutes} Minuten.
 Paywall-Empfehlungen: {'erlaubt' if settings.discovery_include_paywalled else 'nicht erwünscht'}.
 Seltener gewünschte Quellen: {settings.discovery_deprioritized_sources_csv or 'keine'}.
+{reader_memory}
 
 Wenn die Präferenz hinreichend konkret ist, liefere in suggested_profile nur eine kurze,
 konkrete Ergänzung zum bestehenden Suchprofil. Wiederhole das bestehende Profil nicht und
@@ -110,13 +112,13 @@ def _parse_reply(value: str) -> tuple[str, str | None]:
     return reply, suggestion
 
 
-async def _openai_turn(settings: AppSettings, messages: list[dict]) -> tuple[str, str | None]:
+async def _openai_turn(settings: AppSettings, messages: list[dict], reader_memory: str = "") -> tuple[str, str | None]:
     api_key = decrypt_secret(settings.ai_api_key_encrypted)
     if not api_key or not settings.ai_base_url or not settings.ai_model:
         raise ChatError("Die OpenAI-Verbindung ist nicht vollständig eingerichtet.")
     body = {
         "model": settings.ai_model,
-        "instructions": _instructions(settings),
+        "instructions": _instructions(settings, reader_memory),
         "input": messages,
         "store": False,
         "text": {
@@ -138,11 +140,11 @@ async def _openai_turn(settings: AppSettings, messages: list[dict]) -> tuple[str
         return _parse_reply(_output_text(response.json()))
 
 
-async def _compatible_turn(settings: AppSettings, messages: list[dict]) -> tuple[str, str | None]:
+async def _compatible_turn(settings: AppSettings, messages: list[dict], reader_memory: str = "") -> tuple[str, str | None]:
     if not settings.ai_base_url or not settings.ai_model:
         raise ChatError("Die KI-Verbindung ist nicht vollständig eingerichtet.")
     api_key = decrypt_secret(settings.ai_api_key_encrypted)
-    system = _instructions(settings) + "\nAntworte als JSON mit reply und suggested_profile."
+    system = _instructions(settings, reader_memory) + "\nAntworte als JSON mit reply und suggested_profile."
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
         if settings.ai_provider == "ollama":
@@ -182,12 +184,18 @@ async def chat_turn(
         for message in chat_history(session, limit=20, user=user)
     ]
     messages = [*history, {"role": "user", "content": user_content}]
+    memory = reading_memory(session, user, settings) if user else ""
     try:
-        reply, suggestion = (
-            await _openai_turn(settings, messages)
-            if settings.ai_provider == "openai"
-            else await _compatible_turn(settings, messages)
-        )
+        if settings.ai_provider == "openai":
+            reply, suggestion = (
+                await _openai_turn(settings, messages, memory)
+                if user else await _openai_turn(settings, messages)
+            )
+        else:
+            reply, suggestion = (
+                await _compatible_turn(settings, messages, memory)
+                if user else await _compatible_turn(settings, messages)
+            )
     except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
         raise ChatError(f"Der KI-Chat ist fehlgeschlagen: {str(error)[:300]}") from error
     if not reply:
@@ -292,7 +300,7 @@ Suchprofil oder den Suchrhythmus zu verändern:
             candidates, usage = await request_candidates(
                 settings,
                 prompt,
-                reading_memory(session, user),
+                reading_memory(session, user, settings),
                 max_articles=requested_articles,
                 session=session,
                 user=user,
@@ -317,7 +325,7 @@ Suchprofil oder den Suchrhythmus zu verändern:
             podcast_candidates, podcast_usage = await request_podcast_candidates(
                 settings,
                 f"Ad-hoc-Podcast-Recherche zu dieser konkreten Anfrage: {user_content}\n\nStreuung: {breadth_guidance}\n\nBisheriger Chat-Kontext:\n{_research_context(session, user)}",
-                reading_memory(session, user),
+                reading_memory(session, user, settings),
                 max_podcasts=requested_podcasts,
             )
             podcasts = import_podcast_candidates(
@@ -329,6 +337,7 @@ Suchprofil oder den Suchrhythmus zu verändern:
     try:
         if candidates:
             await refresh_hero_visual(settings, candidates)
+            await refresh_artwork_impression(session, settings, candidates, user)
     except Exception:
         # A decorative hero image must not turn a completed research request
         # into an API 500 after the article metadata was saved.

@@ -2,6 +2,7 @@ import { IconBrandSpotify, IconExternalLink, IconHeadphones } from "@tabler/icon
 import { getPodcast } from "../../server-api";
 import { SavePodcastButton } from "../../components/SavePodcastButton";
 import { SiteHeader } from "../../components/SiteHeader";
+import { PreferenceFeedbackForm } from "../../components/PreferenceFeedbackForm";
 import { PodcastEpisode } from "../../types";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,7 @@ export default async function PodcastPage({ params }: { params: Promise<{ id: st
             <p>{episode.curation_reason}</p>
           </section>
         ) : null}
+        <PreferenceFeedbackForm kind="podcast" targetId={episode.id} />
         <section className="podcast-reader__source" aria-labelledby="podcast-source-title">
           <p className="kicker" id="podcast-source-title">Weiterhören</p>
           <p>Audio und Beschreibung bleiben bei der Originalplattform.</p>

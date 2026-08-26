@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 import httpx
@@ -10,7 +11,15 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.main import app, get_session, stream_with_keepalives
 from app.auth import current_user
-from app.models import Article, User, UserArticle
+from app.models import (
+    Article,
+    Artwork,
+    PodcastEpisode,
+    User,
+    UserArticle,
+    UserArtwork,
+    UserPodcastEpisode,
+)
 from app.discovery import DiscoveryRunResult
 from app.seed import seed_demo_content
 
@@ -50,6 +59,32 @@ def isolated_client():
         session.flush()
         for article in session.scalars(select(Article)).all():
             session.add(UserArticle(user_id=user.id, article_id=article.id))
+        podcast = PodcastEpisode(
+            title="Eine Folge ueber neugieriges Hoeren",
+            show_name="Testpodcast",
+            description="Ein vertiefendes Gespraech.",
+            canonical_url="https://example.org/podcast/testfolge",
+            spotify_url="https://open.spotify.com/episode/test",
+            published_at=datetime.now(UTC),
+            duration_minutes=48,
+            topics_csv="Musik,Kultur",
+        )
+        artwork = Artwork(
+            provider="artic",
+            provider_id="test-artwork",
+            title="Eine Testlandschaft",
+            artist_display="Ada Kuenstlerin",
+            image_url="https://www.artic.edu/iiif/2/test/full/843,/0/default.jpg",
+            source_url="https://www.artic.edu/artworks/test-artwork",
+            attribution="Digital image courtesy of the Art Institute of Chicago",
+            license_label="Public Domain / CC0",
+        )
+        session.add_all([podcast, artwork])
+        session.flush()
+        session.add_all([
+            UserPodcastEpisode(user_id=user.id, podcast_episode_id=podcast.id),
+            UserArtwork(user_id=user.id, artwork_id=artwork.id),
+        ])
         session.commit()
         user_id, username, email = user.id, user.username, user.email
 
@@ -229,4 +264,85 @@ def test_chat_research_keeps_response_successful_if_run_log_fails(isolated_clien
     assert response.status_code == 200
     assert response.json()["articles"] == []
     assert response.json()["podcasts"] == []
+
+
+def test_soul_is_versioned_and_art_can_be_disabled(isolated_client):
+    first = isolated_client.put(
+        "/api/v1/reading-profile/soul",
+        json={
+            "markdown": "# Meine Haltung\n\nUeberrasche mich mit Gegenpositionen.",
+            "art_enabled": True,
+        },
+    )
+    second = isolated_client.put(
+        "/api/v1/reading-profile/soul",
+        json={
+            "markdown": "# Meine Haltung\n\nUeberrasche mich, aber vermeide Hype.",
+            "art_enabled": False,
+        },
+    )
+
+    assert first.status_code == 200
+    assert first.json()["soul"]["revision"] == 1
+    assert second.status_code == 200
+    assert second.json()["soul"]["revision"] == 2
+    assert second.json()["soul"]["art_enabled"] is False
+    assert [item["revision"] for item in second.json()["soul"]["revisions"]] == [2, 1]
+
+
+def test_article_feedback_reasons_and_confirmed_memory_are_transparent(isolated_client):
+    article = isolated_client.get("/api/v1/articles").json()[0]
+    saved = isolated_client.put(
+        f"/api/v1/articles/{article['id']}/feedback",
+        json={
+            "rating": "great",
+            "reasons": ["depth", "perspective"],
+            "note": "Bitte mehr davon, aber aus anderen Quellen.",
+        },
+    )
+
+    assert saved.status_code == 200
+    assert saved.json()["reasons"] == ["depth", "perspective"]
+    profile = isolated_client.get("/api/v1/reading-profile").json()
+    assert profile["stats"]["feedback_count"] == 1
+    assert profile["insights"]
+    insight = profile["insights"][0]
+
+    confirmed = isolated_client.patch(
+        f"/api/v1/reading-profile/insights/{insight['key']}",
+        json={"status": "confirmed"},
+    )
+
+    assert confirmed.status_code == 200
+    confirmed_item = next(item for item in confirmed.json()["insights"] if item["key"] == insight["key"])
+    assert confirmed_item["status"] == "confirmed"
+    assert confirmed_item["basis"]
+
+
+def test_podcast_and_artwork_feedback_use_the_same_explicit_vocabulary(isolated_client):
+    podcast = isolated_client.get("/api/v1/podcasts").json()[0]
+    home = isolated_client.get("/api/v1/home").json()
+    # The fixture artwork belongs to the user but is not featured; use its
+    # deterministic SQLite id to exercise the ownership-protected endpoint.
+    artwork_id = 1
+    podcast_response = isolated_client.put(
+        f"/api/v1/podcasts/{podcast['id']}/feedback",
+        json={"rating": "yes", "reasons": ["depth", "style"], "note": "Gute Stimme."},
+    )
+    artwork_response = isolated_client.put(
+        f"/api/v1/artworks/{artwork_id}/feedback",
+        json={"rating": "not_quite", "reasons": ["too_familiar"], "note": "Zu erwartbar."},
+    )
+
+    assert home["artwork"] is None
+    assert podcast_response.status_code == 200
+    assert podcast_response.json()["reasons"] == ["depth", "style"]
+    assert artwork_response.status_code == 200
+    assert artwork_response.json()["reasons"] == ["too_familiar"]
+    assert isolated_client.get(f"/api/v1/podcasts/{podcast['id']}/feedback").json()["rating"] == "yes"
+    assert isolated_client.get(f"/api/v1/artworks/{artwork_id}/feedback").json()["rating"] == "not_quite"
+    profile = isolated_client.get("/api/v1/reading-profile").json()
+    assert profile["stats"]["feedback_count"] == 2
+    assert len(profile["podcast_feedback"]) == 1
+    assert len(profile["artwork_feedback"]) == 1
 

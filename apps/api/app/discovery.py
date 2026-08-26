@@ -13,11 +13,12 @@ import re
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from .feeds import plain_text, validate_public_url
-from .models import AppSettings, Article, ArticleFeedback, Author, PodcastEpisode, Source, User, UserArticle, UserArticleFeedback, UserPodcastEpisode, UserSourceMemory
+from .art import refresh_artwork_impression
+from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, PodcastEpisode, Source, User, UserArticle, UserArticleFeedback, UserArtworkFeedback, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserSourceMemory
 from .secrets import decrypt_secret
 from .spotify import SpotifyError, search_spotify_episodes, spotify_is_configured
 from .visuals import refresh_hero_visual
@@ -304,13 +305,22 @@ def record_source_observation(
     memory.last_observed_at = observed_at or datetime.now(UTC)
 
 
-def reading_memory(session: Session, user: User) -> str:
-    """Turn local reading activity into a small, explainable ranking signal."""
-    articles = session.scalars(
+def reading_memory(session: Session, user: User, settings: AppSettings | None = None) -> str:
+    """Build a weighted, inspectable memory without equating reading with liking."""
+    settings = settings or session.scalar(select(AppSettings).where(AppSettings.user_id == user.id))
+    saved_articles = session.scalars(
         select(Article).join(UserArticle, UserArticle.article_id == Article.id)
-        .where(UserArticle.user_id == user.id, or_(UserArticle.is_read.is_(True), UserArticle.is_saved.is_(True)))
-        .order_by(desc(Article.published_at))
-        .limit(24)
+        .where(UserArticle.user_id == user.id, UserArticle.is_saved.is_(True))
+        .order_by(desc(UserArticle.saved_at), desc(Article.published_at)).limit(24)
+    ).all()
+    read_only_articles = session.scalars(
+        select(Article).join(UserArticle, UserArticle.article_id == Article.id)
+        .where(
+            UserArticle.user_id == user.id,
+            UserArticle.is_read.is_(True),
+            UserArticle.is_saved.is_(False),
+        )
+        .order_by(desc(UserArticle.read_at), desc(Article.published_at)).limit(18)
     ).all()
     feedback_rows = session.execute(
         select(UserArticleFeedback, Article)
@@ -326,15 +336,39 @@ def reading_memory(session: Session, user: User) -> str:
         .order_by(desc(UserArticle.discovered_at))
         .limit(36)
     ).all()
-    if not articles and not feedback_rows and not recent_ai_titles:
+    podcast_feedback_rows = session.execute(
+        select(UserPodcastFeedback, PodcastEpisode)
+        .join(PodcastEpisode, PodcastEpisode.id == UserPodcastFeedback.podcast_episode_id)
+        .where(UserPodcastFeedback.user_id == user.id)
+        .order_by(desc(UserPodcastFeedback.updated_at)).limit(18)
+    ).all()
+    artwork_feedback_rows = session.execute(
+        select(UserArtworkFeedback, Artwork)
+        .join(Artwork, Artwork.id == UserArtworkFeedback.artwork_id)
+        .where(UserArtworkFeedback.user_id == user.id)
+        .order_by(desc(UserArtworkFeedback.updated_at)).limit(18)
+    ).all()
+    confirmed_insights = session.scalars(
+        select(UserReadingInsight).where(
+            UserReadingInsight.user_id == user.id,
+            UserReadingInsight.status == "confirmed",
+        ).order_by(desc(UserReadingInsight.updated_at)).limit(12)
+    ).all()
+    soul = settings.soul_markdown.strip() if settings else ""
+    if not saved_articles and not read_only_articles and not feedback_rows and not podcast_feedback_rows and not artwork_feedback_rows and not confirmed_insights and not recent_ai_titles and not soul:
         return "Noch keine lokalen Lesesignale vorhanden."
-    topics = Counter(
-        topic.strip() for article in articles for topic in article.topics_csv.split(",") if topic.strip()
-    )
-    sources = Counter(article.source.name for article in articles)
-    topic_summary = ", ".join(topic for topic, _ in topics.most_common(6)) or "keine Themenangaben"
-    source_summary = ", ".join(source for source, _ in sources.most_common(4))
-    feedback_summary = ""
+
+    sections: list[str] = []
+    if soul:
+        sections.append(
+            "Vom Nutzer festgelegte kuratorische Haltung (höchste Priorität; keine bloße Verhaltensableitung):\n"
+            + soul[:6000]
+        )
+    if confirmed_insights:
+        statements = " | ".join(insight.text for insight in confirmed_insights if insight.text)
+        if statements:
+            sections.append("Vom Nutzer bestätigte Langzeiterinnerungen: " + statements[:3000])
+
     if feedback_rows:
         positive = [(feedback, article) for feedback, article in feedback_rows if feedback.rating in {"great", "yes"}]
         negative = [(feedback, article) for feedback, article in feedback_rows if feedback.rating not in {"great", "yes"}]
@@ -342,7 +376,7 @@ def reading_memory(session: Session, user: User) -> str:
         disliked_topics = Counter(topic.strip() for _, article in negative for topic in article.topics_csv.split(",") if topic.strip())
         liked = ", ".join(topic for topic, _ in liked_topics.most_common(4))
         disliked = ", ".join(topic for topic, _ in disliked_topics.most_common(3))
-        feedback_summary = f" Explizite Rückmeldungen: {len(positive)} positiv, {len(negative)} kritisch."
+        feedback_summary = f"Explizite Artikelrückmeldungen (starkes Signal): {len(positive)} positiv, {len(negative)} kritisch."
         if liked:
             feedback_summary += f" Positiv markierte Themen: {liked}."
         if disliked:
@@ -350,15 +384,50 @@ def reading_memory(session: Session, user: User) -> str:
         notes = [feedback.note.strip() for feedback, _ in feedback_rows if feedback.note and feedback.note.strip()][:3]
         if notes:
             feedback_summary += " Freie Hinweise des Lesers: " + " | ".join(note[:300] for note in notes) + "."
+        reasons = Counter(
+            reason.strip() for feedback, _ in feedback_rows
+            for reason in feedback.reasons_csv.split(",") if reason.strip()
+        )
+        if reasons:
+            feedback_summary += " Häufig genannte Gründe: " + ", ".join(reason for reason, _ in reasons.most_common(5)) + "."
+        sections.append(feedback_summary)
+
+    if saved_articles:
+        topics = Counter(topic.strip() for article in saved_articles for topic in article.topics_csv.split(",") if topic.strip())
+        sources = Counter(article.source.name for article in saved_articles)
+        sections.append(
+            "Gemerkte Texte (mittleres positives Signal): "
+            f"häufige Themen {', '.join(topic for topic, _ in topics.most_common(6)) or 'keine'}; "
+            f"häufige Quellen {', '.join(source for source, _ in sources.most_common(4)) or 'keine'}."
+        )
+    if read_only_articles:
+        topics = Counter(topic.strip() for article in read_only_articles for topic in article.topics_csv.split(",") if topic.strip())
+        sections.append(
+            "Nur als gelesen markiert (schwaches Nutzungssignal, ausdrücklich nicht als Gefallen interpretieren): "
+            + (", ".join(topic for topic, _ in topics.most_common(5)) or "keine Themenangaben") + "."
+        )
+
+    if podcast_feedback_rows:
+        positive_podcasts = [episode for feedback, episode in podcast_feedback_rows if feedback.rating in {"great", "yes"}]
+        negative_podcasts = [episode for feedback, episode in podcast_feedback_rows if feedback.rating not in {"great", "yes"}]
+        liked = ", ".join(episode.title[:120] for episode in positive_podcasts[:4])
+        disliked = ", ".join(episode.title[:120] for episode in negative_podcasts[:3])
+        sections.append(
+            f"Explizites Podcastfeedback: {len(positive_podcasts)} positiv, {len(negative_podcasts)} kritisch. "
+            f"Passend: {liked or 'noch nichts'}. Weniger passend: {disliked or 'noch nichts'}."
+        )
+    if artwork_feedback_rows:
+        liked_art = [artwork for feedback, artwork in artwork_feedback_rows if feedback.rating in {"great", "yes"}]
+        disliked_art = [artwork for feedback, artwork in artwork_feedback_rows if feedback.rating not in {"great", "yes"}]
+        sections.append(
+            f"Explizites Kunstfeedback: passend {', '.join(art.title[:100] for art in liked_art[:4]) or 'noch nichts'}; "
+            f"weniger passend {', '.join(art.title[:100] for art in disliked_art[:3]) or 'noch nichts'}."
+        )
     if recent_ai_titles:
         previous = " | ".join(title[:180] for title in recent_ai_titles if title)
         if previous:
-            feedback_summary += " Bereits vorgeschlagene Titel nicht erneut liefern: " + previous + "."
-    return (
-        "Lokale Lesesignale (weiche Präferenz, keine harte Ausschlussregel): "
-        f"{len(articles)} gelesene oder gemerkte Texte; häufige Themen: {topic_summary}. "
-        f"Häufige Quellen: {source_summary or 'keine'}." + feedback_summary
-    )
+            sections.append("Bereits vorgeschlagene Titel nicht erneut liefern: " + previous + ".")
+    return "\n".join(sections)
 
 
 def _prompt(
@@ -962,7 +1031,7 @@ async def run_discovery(
         user = session.get(User, settings.user_id)
     if user is None:
         raise DiscoveryError("Die Suche benötigt ein Nutzerkonto.")
-    memory = reading_memory(session, user)
+    memory = reading_memory(session, user, settings)
     candidates, usage = await request_candidates(
         settings, prompt_override, memory, max_articles=max_articles, session=session, user=user
     )
@@ -982,6 +1051,12 @@ async def run_discovery(
             logger.warning("Optional podcast discovery failed: %s", error)
     if await refresh_hero_visual(settings, candidates):
         session.commit()
+    try:
+        if await refresh_artwork_impression(session, settings, candidates, user):
+            session.commit()
+    except Exception:
+        logger.warning("Optional artwork discovery failed", exc_info=True)
+        session.rollback()
     return DiscoveryRunResult(
         articles=articles,
         podcasts=podcasts,
@@ -1002,7 +1077,7 @@ async def run_discovery_stream(
     if user is None:
         raise DiscoveryError("Die Suche benötigt ein Nutzerkonto.")
     requested = max(1, min(settings.discovery_max_articles, 12))
-    memory = reading_memory(session, user)
+    memory = reading_memory(session, user, settings)
     imported_count = 0
     input_tokens = output_tokens = total_tokens = 0
     all_candidates: list[dict] = []
@@ -1064,6 +1139,13 @@ async def run_discovery_stream(
     except Exception:
         # Visual enrichment is optional and must never turn a successful
         # article search into a 500 response.
+        session.rollback()
+    try:
+        await refresh_artwork_impression(session, settings, all_candidates, user)
+        session.commit()
+    except Exception:
+        # Museum enrichment is optional and must obey the same failure boundary.
+        logger.warning("Optional artwork discovery failed", exc_info=True)
         session.rollback()
     yield {
         "type": "done",

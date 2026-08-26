@@ -12,7 +12,11 @@ Paywalls zeigt dérive den Hinweis und den Link, statt Zugänge zu umgehen.
 - Quellen-Memory: passende Publikationen werden pro Konto gelernt und rotierend genutzt
 - Offene Suche bleibt Teil jedes Laufs, damit der Quellenpool nicht zur Filterblase wird
 - Manuelle Quellenregeln mit **Bevorzugen**, **Seltener** und **Ausschließen**
-- Lokaler Chat-Kurator, Leseprofil, Feedback und Merkliste
+- Nutzerkontrollierte `SOUL.md` mit Import, Export und Versionsverlauf
+- Bestätigbares Langzeitgedächtnis mit transparenter Signalgewichtung
+- Einheitliches Feedback für Artikel, Podcasts und Kunstimpulse
+- Optionale Kunstspur mit gemeinfreien Werken des Art Institute of Chicago
+- Lokaler Chat-Kurator, Leseprofil und Merkliste
 - Geschlossener Mehrbenutzerbetrieb mit Einladungen
 
 ## Architektur
@@ -114,11 +118,29 @@ Browser spricht über den Web-Container mit ihr.
 
 ## KI-Kurator und Quellen
 
-Der KI-Kurator verwaltet pro Konto einen Zeitplan, Suchprofil, Chat-Verlauf
-und Feedback-Signale. Die automatische Suche läuft über den Worker, solange
+Der KI-Kurator verwaltet pro Konto einen Zeitplan, Suchprofil, Chat-Verlauf,
+`SOUL.md` und Feedback-Signale. Die automatische Suche läuft über den Worker, solange
 der Docker-Stack aktiv ist. Webfunde speichern nur Metadaten, kurze
 Einordnung und den Original-Link. Der Dienst umgeht keine Paywalls, Logins,
 Robots-Regeln oder Publisher-Beschränkungen.
+
+Im **Leseprofil** kann jeder Nutzer seine eigene kuratorische Haltung als
+Markdown festlegen. Diese `SOUL.md` ist kein versteckter Systemprompt: Sie ist
+sichtbar, editierbar, exportierbar und wird bei jeder Änderung versioniert.
+Abgeleitete Erinnerungen bleiben zunächst Vorschläge. Erst eine ausdrückliche
+Bestätigung macht sie zu dauerhaftem Kuratorenwissen; verworfene Vorschläge
+werden nicht weiter benutzt.
+
+Die Kuration behandelt Signale bewusst unterschiedlich:
+
+1. `SOUL.md` und bestätigte Erinnerungen haben die höchste Priorität.
+2. Explizite Rückmeldungen samt Gründen und Notizen sind starke Signale.
+3. Gemerkte Inhalte sind mittlere positive Signale.
+4. Ein bloßer Lesestatus ist nur ein schwaches Nutzungssignal und bedeutet
+   ausdrücklich nicht, dass der Inhalt gefallen hat.
+
+Artikel, Podcasts und Kunstimpulse verwenden dasselbe Vokabular für
+Rückmeldungen. Alle Einstellungen und Lernsignale bleiben pro Konto getrennt.
 
 Nach erfolgreichen KI-Funden merkt sich dérive die Publikations-Domain. Häufig
 passende Quellen erhalten einen höheren Quellenwert; positives oder negatives
@@ -134,6 +156,21 @@ gespeichert.
 Optional kann `PEXELS_API_KEY` gesetzt werden. Dann wählt der Kurator für neue
 Läufe ein passendes Hero-Bild von Pexels und zeigt stets Urheber und
 Original-Link an.
+
+Die optionale **Kunstspur** benötigt keinen weiteren API-Schlüssel. Nach einem
+erfolgreichen Suchlauf fragt dérive die öffentliche
+[API des Art Institute of Chicago](https://api.artic.edu/docs/) nach einem
+assoziativ passenden Werk ab. Übernommen werden ausschließlich Datensätze, die
+die Museums-API ausdrücklich als `is_public_domain: true` kennzeichnet und für
+die ein Bild vorhanden ist. Werk, Urheberschaft, Datierung, Medium, Quelle,
+Rechtehinweis und Auswahlgrund bleiben sichtbar. Die Funktion lässt sich pro
+Nutzer in der `SOUL.md`-Sektion ausschalten; ein Ausfall der Museums-API lässt
+den eigentlichen Recherchelauf nicht scheitern.
+
+Die zusätzlich benötigten Tabellen und Spalten werden beim Start der API
+automatisch und ohne Zurücksetzen bestehender Inhalte ergänzt. Ein Update von
+`web`, `api` und `worker` benötigt daher weder einen neuen Postgres-Container
+noch ein neues Datenvolume.
 
 ## Entwicklung
 

@@ -41,7 +41,7 @@ from .feeds import (
     validate_public_url,
 )
 from .auth import COOKIE_NAME, SESSION_TTL_DAYS, bootstrap_admin, create_invitation, create_session, current_admin, current_user, password_hasher, redeem_invitation, revoke_session, session_token_from_request, validate_account_fields, verify_password
-from .models import AppSettings, Article, ArticleFeedback, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserReadingInsight, UserSourceMemory
+from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserArtwork, UserArtworkFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserSoulRevision, UserSourceMemory
 from .outbound_feed import build_rss_feed
 from .secrets import decrypt_secret, encrypt_secret
 from .spotify import SpotifyError, spotify_is_configured, test_spotify_connection
@@ -136,7 +136,23 @@ class PodcastStateUpdate(BaseModel):
 
 class ArticleFeedbackRequest(BaseModel):
     rating: Literal["great", "yes", "not_quite", "no"]
+    reasons: list[Literal["topic", "perspective", "depth", "style", "source", "timing", "too_shallow", "too_familiar", "too_current"]] = Field(default_factory=list, max_length=9)
     note: str | None = Field(default=None, max_length=2000)
+
+
+class PreferenceFeedbackRequest(BaseModel):
+    rating: Literal["great", "yes", "not_quite", "no"]
+    reasons: list[Literal["topic", "perspective", "depth", "style", "source", "timing", "too_shallow", "too_familiar", "too_current"]] = Field(default_factory=list, max_length=9)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class SoulUpdateRequest(BaseModel):
+    markdown: str = Field(default="", max_length=12000)
+    art_enabled: bool = True
+
+
+class InsightStatusRequest(BaseModel):
+    status: Literal["confirmed", "dismissed"]
 
 
 class FreshRSSSyncRequest(BaseModel):
@@ -268,6 +284,10 @@ def ensure_schema() -> None:
         "pexels_api_key_encrypted": "TEXT",
         "spotify_client_id_encrypted": "TEXT",
         "spotify_client_secret_encrypted": "TEXT",
+        "soul_markdown": "TEXT NOT NULL DEFAULT ''",
+        "soul_revision": "INTEGER NOT NULL DEFAULT 0",
+        "art_enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
+        "featured_artwork_id": "INTEGER REFERENCES artworks(id) ON DELETE SET NULL",
     }
     run_columns = {column["name"] for column in inspect(engine).get_columns("discovery_runs")}
     run_additions = {
@@ -282,6 +302,8 @@ def ensure_schema() -> None:
     chat_columns = {column["name"] for column in inspect(engine).get_columns("discovery_chat_messages")}
     run_identity_columns = {column["name"] for column in inspect(engine).get_columns("discovery_runs")}
     settings_identity_columns = {column["name"] for column in inspect(engine).get_columns("app_settings")}
+    article_feedback_columns = {column["name"] for column in inspect(engine).get_columns("user_article_feedback")}
+    insight_columns = {column["name"] for column in inspect(engine).get_columns("user_reading_insights")}
     with engine.begin() as connection:
         for name, definition in additions.items():
             if name not in columns:
@@ -301,6 +323,19 @@ def ensure_schema() -> None:
             connection.execute(text("ALTER TABLE discovery_runs ADD COLUMN user_id INTEGER REFERENCES users(id)"))
         if "user_id" not in settings_identity_columns:
             connection.execute(text("ALTER TABLE app_settings ADD COLUMN user_id INTEGER REFERENCES users(id)"))
+        if "reasons_csv" not in article_feedback_columns:
+            connection.execute(text("ALTER TABLE user_article_feedback ADD COLUMN reasons_csv VARCHAR(500) NOT NULL DEFAULT ''"))
+        insight_additions = {
+            "status": "VARCHAR(24) NOT NULL DEFAULT 'suggested'",
+            "text": "TEXT",
+            "basis": "TEXT",
+            "confidence": "VARCHAR(16) NOT NULL DEFAULT 'medium'",
+            "source_type": "VARCHAR(32) NOT NULL DEFAULT 'reading_feedback'",
+        }
+        for name, definition in insight_additions.items():
+            if name not in insight_columns:
+                connection.execute(text(f"ALTER TABLE user_reading_insights ADD COLUMN {name} {definition}"))
+        connection.execute(text("UPDATE user_reading_insights SET status = 'dismissed' WHERE dismissed = TRUE"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_app_settings_user_id_unique ON app_settings (user_id) WHERE user_id IS NOT NULL"))
         # Preserve the cadence represented by the original preset values when
         # upgrading an existing local database.
@@ -819,6 +854,26 @@ async def test_ai_connection(request: AISetupRequest, user: CurrentUserDependenc
     }
 
 
+def serialize_artwork(artwork: Artwork, state: UserArtwork | None = None) -> dict:
+    return {
+        "id": artwork.id,
+        "provider": artwork.provider,
+        "provider_id": artwork.provider_id,
+        "title": artwork.title,
+        "artist_display": artwork.artist_display,
+        "date_display": artwork.date_display,
+        "medium_display": artwork.medium_display,
+        "place_of_origin": artwork.place_of_origin,
+        "image_url": artwork.image_url,
+        "source_url": artwork.source_url,
+        "attribution": artwork.attribution,
+        "license": artwork.license_label,
+        "context": artwork.context,
+        "curation_reason": artwork.curation_reason,
+        "is_saved": state.is_saved if state is not None else False,
+    }
+
+
 @app.post("/api/v1/setup/spotify/test")
 async def test_spotify_setup(
     request: SpotifySetupRequest, user: CurrentUserDependency, session: SessionDependency
@@ -1288,6 +1343,10 @@ def home(user: CurrentUserDependency, session: SessionDependency) -> dict:
         select(PodcastEpisode).join(UserPodcastEpisode, UserPodcastEpisode.podcast_episode_id == PodcastEpisode.id).where(UserPodcastEpisode.user_id == user.id).order_by(desc(UserPodcastEpisode.discovered_at)).limit(3)
     ).all()
     podcast_state = podcast_states(session, user, [podcast.id for podcast in podcasts])
+    artwork = session.get(Artwork, settings.featured_artwork_id) if settings.art_enabled and settings.featured_artwork_id else None
+    artwork_state = session.scalar(select(UserArtwork).where(
+        UserArtwork.user_id == user.id, UserArtwork.artwork_id == artwork.id
+    )) if artwork else None
     return {
         "for_you": [
             {**serialize_article(article, state=states.get(article.id)), "reason": recommendation_reason(article)}
@@ -1296,6 +1355,7 @@ def home(user: CurrentUserDependency, session: SessionDependency) -> dict:
         "today": [serialize_article(article, state=states.get(article.id)) for article in today],
         "discover": [serialize_article(article, state=states.get(article.id)) for article in discover],
         "podcasts": [serialize_podcast(podcast, state=podcast_state.get(podcast.id)) for podcast in podcasts],
+        "artwork": serialize_artwork(artwork, artwork_state) if artwork else None,
         "authors": sorted(authors.values(), key=lambda author: author["count"], reverse=True)[:4],
         "topics": [
             {"name": name, "article_count": count}
@@ -1350,6 +1410,92 @@ def update_podcast_state(
     return serialize_podcast(podcast, state=state)
 
 
+@app.get("/api/v1/podcasts/{podcast_id}/feedback")
+def get_podcast_feedback(podcast_id: int, user: CurrentUserDependency, session: SessionDependency) -> dict | None:
+    state = session.scalar(select(UserPodcastEpisode.id).where(
+        UserPodcastEpisode.user_id == user.id,
+        UserPodcastEpisode.podcast_episode_id == podcast_id,
+    ))
+    podcast = session.get(PodcastEpisode, podcast_id) if state else None
+    if podcast is None:
+        raise HTTPException(status_code=404, detail="Podcast episode not found.")
+    feedback = session.scalar(select(UserPodcastFeedback).where(
+        UserPodcastFeedback.user_id == user.id,
+        UserPodcastFeedback.podcast_episode_id == podcast_id,
+    ))
+    return serialize_podcast_feedback(feedback, podcast) if feedback else None
+
+
+@app.put("/api/v1/podcasts/{podcast_id}/feedback")
+def save_podcast_feedback(
+    podcast_id: int, request: PreferenceFeedbackRequest,
+    user: CurrentUserDependency, session: SessionDependency,
+) -> dict:
+    state = session.scalar(select(UserPodcastEpisode.id).where(
+        UserPodcastEpisode.user_id == user.id,
+        UserPodcastEpisode.podcast_episode_id == podcast_id,
+    ))
+    podcast = session.get(PodcastEpisode, podcast_id) if state else None
+    if podcast is None:
+        raise HTTPException(status_code=404, detail="Podcast episode not found.")
+    feedback = session.scalar(select(UserPodcastFeedback).where(
+        UserPodcastFeedback.user_id == user.id,
+        UserPodcastFeedback.podcast_episode_id == podcast_id,
+    ))
+    if feedback is None:
+        feedback = UserPodcastFeedback(user_id=user.id, podcast_episode_id=podcast_id)
+        session.add(feedback)
+    feedback.rating = request.rating
+    feedback.reasons_csv = _csv(request.reasons)
+    feedback.note = " ".join(request.note.strip().split()) if request.note else None
+    session.commit()
+    session.refresh(feedback)
+    return serialize_podcast_feedback(feedback, podcast)
+
+
+@app.put("/api/v1/artworks/{artwork_id}/feedback")
+def save_artwork_feedback(
+    artwork_id: int, request: PreferenceFeedbackRequest,
+    user: CurrentUserDependency, session: SessionDependency,
+) -> dict:
+    state = session.scalar(select(UserArtwork.id).where(
+        UserArtwork.user_id == user.id, UserArtwork.artwork_id == artwork_id,
+    ))
+    artwork = session.get(Artwork, artwork_id) if state else None
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found.")
+    feedback = session.scalar(select(UserArtworkFeedback).where(
+        UserArtworkFeedback.user_id == user.id,
+        UserArtworkFeedback.artwork_id == artwork_id,
+    ))
+    if feedback is None:
+        feedback = UserArtworkFeedback(user_id=user.id, artwork_id=artwork_id)
+        session.add(feedback)
+    feedback.rating = request.rating
+    feedback.reasons_csv = _csv(request.reasons)
+    feedback.note = " ".join(request.note.strip().split()) if request.note else None
+    session.commit()
+    session.refresh(feedback)
+    return serialize_artwork_feedback(feedback, artwork)
+
+
+@app.get("/api/v1/artworks/{artwork_id}/feedback")
+def get_artwork_feedback(
+    artwork_id: int, user: CurrentUserDependency, session: SessionDependency
+) -> dict | None:
+    state = session.scalar(select(UserArtwork.id).where(
+        UserArtwork.user_id == user.id, UserArtwork.artwork_id == artwork_id,
+    ))
+    artwork = session.get(Artwork, artwork_id) if state else None
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found.")
+    feedback = session.scalar(select(UserArtworkFeedback).where(
+        UserArtworkFeedback.user_id == user.id,
+        UserArtworkFeedback.artwork_id == artwork_id,
+    ))
+    return serialize_artwork_feedback(feedback, artwork) if feedback else None
+
+
 def serialize_feedback(feedback: UserArticleFeedback, article: Article) -> dict:
     return {
         "id": feedback.id,
@@ -1357,6 +1503,35 @@ def serialize_feedback(feedback: UserArticleFeedback, article: Article) -> dict:
         "article_title": article.title,
         "source": article.source.name,
         "rating": feedback.rating,
+        "reasons": _list(feedback.reasons_csv),
+        "note": feedback.note,
+        "created_at": feedback.created_at.isoformat(),
+        "updated_at": feedback.updated_at.isoformat() if feedback.updated_at else None,
+    }
+
+
+def serialize_podcast_feedback(feedback: UserPodcastFeedback, podcast: PodcastEpisode) -> dict:
+    return {
+        "id": feedback.id,
+        "podcast_id": podcast.id,
+        "title": podcast.title,
+        "source": podcast.show_name,
+        "rating": feedback.rating,
+        "reasons": _list(feedback.reasons_csv),
+        "note": feedback.note,
+        "created_at": feedback.created_at.isoformat(),
+        "updated_at": feedback.updated_at.isoformat() if feedback.updated_at else None,
+    }
+
+
+def serialize_artwork_feedback(feedback: UserArtworkFeedback, artwork: Artwork) -> dict:
+    return {
+        "id": feedback.id,
+        "artwork_id": artwork.id,
+        "title": artwork.title,
+        "source": artwork.artist_display,
+        "rating": feedback.rating,
+        "reasons": _list(feedback.reasons_csv),
         "note": feedback.note,
         "created_at": feedback.created_at.isoformat(),
         "updated_at": feedback.updated_at.isoformat() if feedback.updated_at else None,
@@ -1364,6 +1539,7 @@ def serialize_feedback(feedback: UserArticleFeedback, article: Article) -> dict:
 
 
 def reading_profile_payload(session: Session, user: User) -> dict:
+    settings = get_or_create_settings(session, user)
     rows = session.execute(
         select(UserArticleFeedback, Article)
         .join(Article, Article.id == UserArticleFeedback.article_id)
@@ -1371,6 +1547,20 @@ def reading_profile_payload(session: Session, user: User) -> dict:
         .order_by(desc(UserArticleFeedback.updated_at), desc(UserArticleFeedback.id))
     ).all()
     feedback = [serialize_feedback(item, article) for item, article in rows]
+    podcast_rows = session.execute(
+        select(UserPodcastFeedback, PodcastEpisode)
+        .join(PodcastEpisode, PodcastEpisode.id == UserPodcastFeedback.podcast_episode_id)
+        .where(UserPodcastFeedback.user_id == user.id)
+        .order_by(desc(UserPodcastFeedback.updated_at), desc(UserPodcastFeedback.id))
+    ).all()
+    podcast_feedback = [serialize_podcast_feedback(item, podcast) for item, podcast in podcast_rows]
+    artwork_rows = session.execute(
+        select(UserArtworkFeedback, Artwork)
+        .join(Artwork, Artwork.id == UserArtworkFeedback.artwork_id)
+        .where(UserArtworkFeedback.user_id == user.id)
+        .order_by(desc(UserArtworkFeedback.updated_at), desc(UserArtworkFeedback.id))
+    ).all()
+    artwork_feedback = [serialize_artwork_feedback(item, artwork) for item, artwork in artwork_rows]
     positive = {"great", "yes"}
     positive_rows = [(item, article) for item, article in rows if item.rating in positive]
     negative_rows = [(item, article) for item, article in rows if item.rating not in positive]
@@ -1382,8 +1572,8 @@ def reading_profile_payload(session: Session, user: User) -> dict:
     def slug(value: str) -> str:
         return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")[:80]
 
-    def add_insight(key: str, text_value: str, basis: str) -> None:
-        insights.append({"key": key, "text": text_value, "basis": basis})
+    def add_insight(key: str, text_value: str, basis: str, confidence: str = "medium") -> None:
+        insights.append({"key": key, "text": text_value, "basis": basis, "confidence": confidence})
 
     if topic_positive:
         topic, count = topic_positive.most_common(1)[0]
@@ -1401,16 +1591,55 @@ def reading_profile_payload(session: Session, user: User) -> dict:
     elif short_positive > long_positive and short_positive:
         add_insight("length-short", "Kurze Texte passen in deinen bisherigen Rückmeldungen häufiger.", f"{short_positive} positive kurze Texte")
 
-    dismissed = set(session.scalars(select(UserReadingInsight.key).where(UserReadingInsight.user_id == user.id, UserReadingInsight.dismissed.is_(True))).all())
-    insights = [item for item in insights if item["key"] not in dismissed]
+    stored_insights = {
+        item.key: item for item in session.scalars(
+            select(UserReadingInsight).where(UserReadingInsight.user_id == user.id)
+        ).all()
+    }
+    visible_insights = []
+    for item in insights:
+        stored = stored_insights.get(item["key"])
+        status = stored.status if stored else "suggested"
+        if status == "dismissed" or (stored and stored.dismissed):
+            continue
+        visible_insights.append({**item, "status": status})
+    current_keys = {item["key"] for item in visible_insights}
+    for stored in stored_insights.values():
+        if stored.status == "confirmed" and stored.key not in current_keys and stored.text:
+            visible_insights.append({
+                "key": stored.key,
+                "text": stored.text,
+                "basis": stored.basis or "Vom Nutzer bestätigt",
+                "confidence": stored.confidence,
+                "status": "confirmed",
+            })
     read_count = session.scalar(select(func.count()).select_from(UserArticle).where(UserArticle.user_id == user.id, UserArticle.is_read.is_(True))) or 0
     saved_articles = session.scalar(select(func.count()).select_from(UserArticle).where(UserArticle.user_id == user.id, UserArticle.is_saved.is_(True))) or 0
     saved_podcasts = session.scalar(select(func.count()).select_from(UserPodcastEpisode).where(UserPodcastEpisode.user_id == user.id, UserPodcastEpisode.is_saved.is_(True))) or 0
     saved_count = saved_articles + saved_podcasts
+    revisions = session.scalars(
+        select(UserSoulRevision).where(UserSoulRevision.user_id == user.id)
+        .order_by(desc(UserSoulRevision.revision)).limit(12)
+    ).all()
     return {
-        "stats": {"read_count": read_count, "saved_count": saved_count, "feedback_count": len(feedback)},
+        "stats": {
+            "read_count": read_count,
+            "saved_count": saved_count,
+            "feedback_count": len(feedback) + len(podcast_feedback) + len(artwork_feedback),
+        },
+        "soul": {
+            "markdown": settings.soul_markdown,
+            "revision": settings.soul_revision,
+            "art_enabled": settings.art_enabled,
+            "revisions": [
+                {"revision": revision.revision, "markdown": revision.markdown, "created_at": revision.created_at.isoformat()}
+                for revision in revisions
+            ],
+        },
         "feedback": feedback,
-        "insights": insights,
+        "podcast_feedback": podcast_feedback,
+        "artwork_feedback": artwork_feedback,
+        "insights": visible_insights,
     }
 
 
@@ -1434,6 +1663,7 @@ def save_article_feedback(article_id: int, request: ArticleFeedbackRequest, user
         feedback = UserArticleFeedback(user_id=user.id, article_id=article_id)
         session.add(feedback)
     feedback.rating = request.rating
+    feedback.reasons_csv = _csv(request.reasons)
     feedback.note = " ".join(request.note.strip().split()) if request.note else None
     domain = normalize_source_domain(article.source.url)
     if domain:
@@ -1449,21 +1679,23 @@ def save_article_feedback(article_id: int, request: ArticleFeedbackRequest, user
                 domain=domain,
                 display_name=article.source.name,
                 observed_count=1,
+                positive_count=0,
+                negative_count=0,
                 source_score=8,
             )
             session.add(memory)
         if previous_rating in {"great", "yes"}:
-            memory.positive_count = max(0, memory.positive_count - 1)
-            memory.source_score = max(0, memory.source_score - 20)
+            memory.positive_count = max(0, (memory.positive_count or 0) - 1)
+            memory.source_score = max(0, (memory.source_score or 0) - 20)
         elif previous_rating is not None:
-            memory.negative_count = max(0, memory.negative_count - 1)
-            memory.source_score = min(100, memory.source_score + 10)
+            memory.negative_count = max(0, (memory.negative_count or 0) - 1)
+            memory.source_score = min(100, (memory.source_score or 0) + 10)
         if request.rating in {"great", "yes"}:
-            memory.positive_count += 1
-            memory.source_score = min(100, memory.source_score + 20)
+            memory.positive_count = (memory.positive_count or 0) + 1
+            memory.source_score = min(100, (memory.source_score or 0) + 20)
         else:
-            memory.negative_count += 1
-            memory.source_score = max(0, memory.source_score - 10)
+            memory.negative_count = (memory.negative_count or 0) + 1
+            memory.source_score = max(0, (memory.source_score or 0) - 10)
     session.commit()
     session.refresh(feedback)
     return serialize_feedback(feedback, article)
@@ -1474,14 +1706,59 @@ def get_reading_profile(user: CurrentUserDependency, session: SessionDependency)
     return reading_profile_payload(session, user)
 
 
+@app.put("/api/v1/reading-profile/soul")
+def update_soul(
+    request: SoulUpdateRequest, user: CurrentUserDependency, session: SessionDependency
+) -> dict:
+    settings = get_or_create_settings(session, user)
+    markdown = request.markdown.replace("\r\n", "\n").strip()
+    if markdown != settings.soul_markdown:
+        settings.soul_revision = max(0, settings.soul_revision) + 1
+        settings.soul_markdown = markdown
+        session.add(UserSoulRevision(
+            user_id=user.id,
+            revision=settings.soul_revision,
+            markdown=markdown,
+        ))
+    settings.art_enabled = request.art_enabled
+    session.commit()
+    return reading_profile_payload(session, user)
+
+
+@app.patch("/api/v1/reading-profile/insights/{insight_key}")
+def update_reading_insight(
+    insight_key: str, request: InsightStatusRequest,
+    user: CurrentUserDependency, session: SessionDependency,
+) -> dict:
+    payload = reading_profile_payload(session, user)
+    candidate = next((item for item in payload["insights"] if item["key"] == insight_key), None)
+    insight = session.scalar(select(UserReadingInsight).where(
+        UserReadingInsight.user_id == user.id, UserReadingInsight.key == insight_key
+    ))
+    if candidate is None and insight is None:
+        raise HTTPException(status_code=404, detail="Reading insight not found.")
+    if insight is None:
+        insight = UserReadingInsight(user_id=user.id, key=insight_key)
+        session.add(insight)
+    insight.status = request.status
+    insight.dismissed = request.status == "dismissed"
+    if candidate:
+        insight.text = candidate["text"]
+        insight.basis = candidate["basis"]
+        insight.confidence = candidate["confidence"]
+    session.commit()
+    return reading_profile_payload(session, user)
+
+
 @app.delete("/api/v1/reading-profile/insights/{insight_key}")
 def dismiss_reading_insight(insight_key: str, user: CurrentUserDependency, session: SessionDependency) -> dict[str, bool]:
     insight = session.scalar(select(UserReadingInsight).where(UserReadingInsight.user_id == user.id, UserReadingInsight.key == insight_key))
     if insight is None:
-        insight = UserReadingInsight(user_id=user.id, key=insight_key, dismissed=True)
+        insight = UserReadingInsight(user_id=user.id, key=insight_key, dismissed=True, status="dismissed")
         session.add(insight)
     else:
         insight.dismissed = True
+        insight.status = "dismissed"
     session.commit()
     return {"dismissed": True}
 

@@ -7,8 +7,19 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.chat import podcast_only_request, requested_podcast_count
-from app.discovery import _candidate_text, _podcast_prompt, _prompt, _rate_limit_delay, _source_memory_guidance, _verified_podcast_candidate, candidate_batch_sizes, import_candidates, import_podcast_candidates, normalize_source_domain
-from app.models import AppSettings, Article, PodcastEpisode, User, UserSourceMemory
+from app.discovery import _candidate_text, _podcast_prompt, _prompt, _rate_limit_delay, _source_memory_guidance, _verified_podcast_candidate, candidate_batch_sizes, import_candidates, import_podcast_candidates, normalize_source_domain, reading_memory
+from app.models import (
+    AppSettings,
+    Article,
+    Author,
+    PodcastEpisode,
+    Source,
+    User,
+    UserArticle,
+    UserArticleFeedback,
+    UserReadingInsight,
+    UserSourceMemory,
+)
 from app.publisher_access import import_subscriber_article, update_rule
 from app.visuals import _search_query
 
@@ -73,6 +84,69 @@ def test_visual_search_prefers_associative_ai_query():
         "topics": ["Künstliche Intelligenz"],
         "visual_query": "experimental musician, circular speakers, studio shadows, tactile sound",
     }]) == "experimental musician, circular speakers, studio shadows, tactile sound"
+
+
+def test_reader_memory_separates_declared_explicit_saved_and_read_signals():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    with Session(engine) as session:
+        user = User(username="memory-reader", email="memory@example.org", password_hash="unused")
+        author = Author(name="Ada Autorin")
+        source = Source(name="Testquelle", url="https://example.org")
+        liked = Article(
+            canonical_url="https://example.org/liked",
+            title="Tiefe Perspektiven",
+            content_html="<p>Text</p>",
+            published_at=now,
+            reading_minutes=22,
+            topics_csv="Stadt,Gesellschaft",
+            author=author,
+            source=source,
+        )
+        read_only = Article(
+            canonical_url="https://example.org/read-only",
+            title="Nur gelesen",
+            content_html="<p>Text</p>",
+            published_at=now,
+            reading_minutes=8,
+            topics_csv="Technologie",
+            author=author,
+            source=source,
+        )
+        session.add_all([user, liked, read_only])
+        session.flush()
+        settings = AppSettings(user_id=user.id, soul_markdown="# Haltung\nKeine Hype-Texte.")
+        session.add_all([
+            settings,
+            UserArticle(user_id=user.id, article_id=liked.id, is_saved=True, saved_at=now),
+            UserArticle(user_id=user.id, article_id=read_only.id, is_read=True, read_at=now),
+            UserArticleFeedback(
+                user_id=user.id,
+                article_id=liked.id,
+                rating="great",
+                reasons_csv="depth,perspective",
+                note="Mehr Gegenpositionen.",
+            ),
+            UserReadingInsight(
+                user_id=user.id,
+                key="confirmed-depth",
+                status="confirmed",
+                text="Ich bevorzuge argumentierende Langformen.",
+                basis="Vom Nutzer bestaetigt",
+            ),
+        ])
+        session.commit()
+
+        memory = reading_memory(session, user, settings)
+
+        assert "höchste Priorität" in memory
+        assert "Keine Hype-Texte" in memory
+        assert "bestätigte Langzeiterinnerungen" in memory
+        assert "Explizite Artikelrückmeldungen (starkes Signal)" in memory
+        assert "Gemerkte Texte (mittleres positives Signal)" in memory
+        assert "schwaches Nutzungssignal" in memory
+        assert "nicht als Gefallen interpretieren" in memory
 
 
 def test_imports_paywalled_recommendation_as_link_metadata(monkeypatch):

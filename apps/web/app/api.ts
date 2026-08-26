@@ -1,4 +1,4 @@
-import { AIConnectionResult, AISetup, Article, ArticleFeedback, DiscoveryChatResearch, DiscoveryChatStatus, DiscoveryProfile, DiscoveryProgressEvent, DiscoveryStatus, Home, PodcastEpisode, ReadingProfile, SetupPayload, SetupResult, SetupStatus, SpotifyConnectionResult, SpotifySetup } from "./types";
+import { AIConnectionResult, AISetup, Article, ArticleFeedback, DiscoveryChatResearch, DiscoveryChatStatus, DiscoveryProfile, DiscoveryProgressEvent, DiscoveryStatus, Home, PodcastEpisode, PreferenceFeedback, PreferenceReason, ReadingProfile, SetupPayload, SetupResult, SetupStatus, SpotifyConnectionResult, SpotifySetup } from "./types";
 
 // Empty by default: Next.js proxies /api/v1 to the internal API container.
 // A public API URL remains possible for local development only.
@@ -87,7 +87,7 @@ export async function getArticleFeedback(articleId: number): Promise<ArticleFeed
   return response.json() as Promise<ArticleFeedback | null>;
 }
 
-export async function saveArticleFeedback(articleId: number, feedback: { rating: ArticleFeedback["rating"]; note?: string }): Promise<ArticleFeedback> {
+export async function saveArticleFeedback(articleId: number, feedback: { rating: ArticleFeedback["rating"]; reasons?: PreferenceReason[]; note?: string }): Promise<ArticleFeedback> {
   const response = await browserFetch(`/api/v1/articles/${articleId}/feedback`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -106,6 +106,50 @@ export async function getReadingProfile(): Promise<ReadingProfile> {
 export async function dismissReadingInsight(key: string): Promise<void> {
   const response = await browserFetch(`/api/v1/reading-profile/insights/${encodeURIComponent(key)}`, { method: "DELETE" });
   if (!response.ok) return apiError(response);
+}
+
+export async function updateReadingInsight(key: string, status: "confirmed" | "dismissed"): Promise<ReadingProfile> {
+  const response = await browserFetch(`/api/v1/reading-profile/insights/${encodeURIComponent(key)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+  });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<ReadingProfile>;
+}
+
+export async function saveSoul(markdown: string, artEnabled: boolean): Promise<ReadingProfile> {
+  const response = await browserFetch("/api/v1/reading-profile/soul", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ markdown, art_enabled: artEnabled }),
+  });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<ReadingProfile>;
+}
+
+export async function savePodcastFeedback(podcastId: number, feedback: { rating: ArticleFeedback["rating"]; reasons: PreferenceReason[]; note?: string }): Promise<PreferenceFeedback> {
+  const response = await browserFetch(`/api/v1/podcasts/${podcastId}/feedback`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(feedback),
+  });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<PreferenceFeedback>;
+}
+
+export async function getPodcastFeedback(podcastId: number): Promise<PreferenceFeedback | null> {
+  const response = await browserFetch(`/api/v1/podcasts/${podcastId}/feedback`, { cache: "no-store" });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<PreferenceFeedback | null>;
+}
+
+export async function saveArtworkFeedback(artworkId: number, feedback: { rating: ArticleFeedback["rating"]; reasons: PreferenceReason[]; note?: string }): Promise<PreferenceFeedback> {
+  const response = await browserFetch(`/api/v1/artworks/${artworkId}/feedback`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(feedback),
+  });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<PreferenceFeedback>;
+}
+
+export async function getArtworkFeedback(artworkId: number): Promise<PreferenceFeedback | null> {
+  const response = await browserFetch(`/api/v1/artworks/${artworkId}/feedback`, { cache: "no-store" });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<PreferenceFeedback | null>;
 }
 
 export async function getDiscovery(): Promise<DiscoveryStatus> {

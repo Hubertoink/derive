@@ -474,3 +474,43 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
 .reader-feedback__error { margin: 10px 0 0; color: #9b453f; font-size: .75rem; }
 .reader-feedback__saved { margin: 20px 0 0; color: var(--slate-grey); font-size: .72rem; }
 .reader-feedback__saved button { cursor: pointer; border: 0; border-bottom: 1px solid currentColor; background: transparent; color: inherit; padding: 0; }
+
+/* Deliberate curator memory */
+.soul-editor { margin-top: 72px; padding-bottom: 58px; border-bottom: 2px solid var(--ink); }
+.soul-editor__grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 34px; }
+.soul-editor__write > label:first-child { display: block; margin-bottom: 8px; color: var(--slate-grey); font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.soul-editor textarea { width: 100%; resize: vertical; border: 1px solid var(--slate-grey); background: var(--porcelain); color: var(--ink); padding: 16px; font: .9rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.soul-editor__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.soul-editor__actions button, .soul-file-button, .soul-revisions button { cursor: pointer; border: 1px solid var(--slate-grey); background: transparent; color: var(--ink); padding: 9px 11px; font-size: .7rem; }
+.soul-editor__actions .soul-save { margin-left: auto; background: var(--ink); color: var(--porcelain); font-weight: 700; }
+.soul-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.soul-art-toggle { display: flex; gap: 8px; align-items: center; margin-top: 16px; color: var(--ink-soft); font-family: var(--serif); font-size: .9rem; }
+.soul-editor__notice { margin: 12px 0 0; padding-left: 10px; border-left: 3px solid var(--powder-blue); color: var(--ink-soft); font-size: .75rem; }
+.soul-editor__preview { min-width: 0; padding: 22px; background: color-mix(in srgb, var(--frosted-mint) 46%, transparent); }
+.soul-editor__preview pre { max-height: 390px; overflow: auto; white-space: pre-wrap; color: var(--ink-soft); font: .78rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.soul-editor__preview > small { color: var(--slate-grey); font-size: .65rem; }
+.soul-revisions { display: grid; gap: 7px; margin-top: 22px; }.soul-revisions strong { font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; }.soul-revisions button { text-align: left; }
+.reading-profile-insight-grid article.is-confirmed { background: color-mix(in srgb, var(--frosted-mint) 48%, transparent); }
+.reading-profile-insight-grid article > div { display: flex; gap: 12px; margin-top: auto; }.reading-profile-insight-grid article > div button { margin-top: 0; }
+.reading-profile-feedback-list article > small { color: var(--slate-grey); font-size: .68rem; }
+
+/* Explicit feedback across media */
+.preference-feedback { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--rule); }.preference-feedback > p { font-family: var(--serif); font-size: 1.05rem; }
+.preference-feedback__reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.preference-feedback__reasons button { cursor: pointer; border: 1px solid var(--rule); background: transparent; color: var(--ink-soft); padding: 6px 8px; font-size: .65rem; }
+.preference-feedback__reasons button.is-selected { border-color: var(--tea-green); background: var(--frosted-mint); color: var(--ink); }
+.preference-feedback label { display: block; margin-top: 14px; }.preference-feedback label span { display: block; margin-bottom: 6px; color: var(--slate-grey); font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }.preference-feedback textarea { width: 100%; resize: vertical; border: 1px solid var(--slate-grey); background: var(--porcelain); color: var(--ink); padding: 9px; font: inherit; }.preference-feedback > small { display: block; margin-top: 10px; color: var(--slate-grey); }
+
+/* Public-domain artwork impression */
+.artwork-impression { margin-top: 100px; padding-top: 0; border-top: 2px solid var(--ink); }
+.artwork-impression__grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); min-height: 620px; background: color-mix(in srgb, var(--frosted-mint) 24%, var(--porcelain)); }
+.artwork-impression figure { position: relative; margin: 0; min-height: 620px; overflow: hidden; background: var(--ink); }.artwork-impression figure img { width: 100%; height: 100%; min-height: 620px; object-fit: contain; }.artwork-impression figcaption { position: absolute; right: 12px; bottom: 12px; max-width: calc(100% - 24px); background: rgba(17,29,36,.78); padding: 7px 9px; color: #fff; font-size: .62rem; }.artwork-impression figcaption a { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+.artwork-impression__copy { padding: 44px; }.artwork-impression__copy h3 { margin: 8px 0 24px; font-family: var(--serif); font-size: clamp(2.7rem, 5vw, 5rem); font-weight: 400; letter-spacing: -.055em; line-height: .92; }.artwork-impression__copy > p:not(.kicker) { margin: 6px 0; color: var(--ink-soft); font-family: var(--serif); line-height: 1.45; }.artwork-impression__context { padding-top: 18px; border-top: 1px solid var(--rule); }.artwork-impression__source { display: inline-flex; align-items: center; gap: 6px; margin-top: 20px; font-size: .72rem; font-weight: 700; }
+
+@media (max-width: 760px) {
+  .soul-editor__grid, .artwork-impression__grid { display: block; }.soul-editor__preview { margin-top: 22px; }.soul-editor__actions .soul-save { margin-left: 0; }.artwork-impression figure, .artwork-impression figure img { min-height: 420px; }.artwork-impression__copy { padding: 28px 20px; }
+  .reading-profile-intro { display: block; padding-top: 48px; }.reading-profile-intro > p:last-child { margin-top: 22px; }
+  .reading-profile-stats strong { font-size: 2rem; }.reading-profile-stats span { font-size: .58rem; }
+  .reading-profile-insight-grid { display: block; }.reading-profile-insight-grid article { min-height: 0; border-right: 0; }
+  .reading-profile-feedback-list article { display: block; }.reading-profile-feedback-list article p { max-width: none; margin-top: 10px; }
+}

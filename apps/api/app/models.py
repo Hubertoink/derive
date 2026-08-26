@@ -89,6 +89,7 @@ class UserArticleFeedback(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     article_id: Mapped[int] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"), index=True)
     rating: Mapped[str] = mapped_column(String(24))
+    reasons_csv: Mapped[str] = mapped_column(String(500), default="")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -102,7 +103,86 @@ class UserReadingInsight(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     key: Mapped[str] = mapped_column(String(255), index=True)
     dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(24), default="suggested", index=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    basis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[str] = mapped_column(String(16), default="medium")
+    source_type: Mapped[str] = mapped_column(String(32), default="reading_feedback")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UserPodcastFeedback(Base):
+    __tablename__ = "user_podcast_feedback"
+    __table_args__ = (UniqueConstraint("user_id", "podcast_episode_id", name="uq_user_podcast_feedback"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    podcast_episode_id: Mapped[int] = mapped_column(ForeignKey("podcast_episodes.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[str] = mapped_column(String(24))
+    reasons_csv: Mapped[str] = mapped_column(String(500), default="")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Artwork(Base):
+    __tablename__ = "artworks"
+    __table_args__ = (UniqueConstraint("provider", "provider_id", name="uq_artworks_provider_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), default="artic", index=True)
+    provider_id: Mapped[str] = mapped_column(String(120), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    artist_display: Mapped[str] = mapped_column(String(1000), default="")
+    date_display: Mapped[str] = mapped_column(String(255), default="")
+    medium_display: Mapped[str] = mapped_column(String(1000), default="")
+    place_of_origin: Mapped[str] = mapped_column(String(500), default="")
+    image_url: Mapped[str] = mapped_column(String(2048))
+    source_url: Mapped[str] = mapped_column(String(2048))
+    attribution: Mapped[str] = mapped_column(String(500))
+    license_label: Mapped[str] = mapped_column(String(120), default="Public Domain / CC0")
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    search_query: Mapped[str] = mapped_column(String(240), default="")
+    curation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UserArtwork(Base):
+    __tablename__ = "user_artworks"
+    __table_args__ = (UniqueConstraint("user_id", "artwork_id", name="uq_user_artworks_user_artwork"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    artwork_id: Mapped[int] = mapped_column(ForeignKey("artworks.id", ondelete="CASCADE"), index=True)
+    is_saved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UserArtworkFeedback(Base):
+    __tablename__ = "user_artwork_feedback"
+    __table_args__ = (UniqueConstraint("user_id", "artwork_id", name="uq_user_artwork_feedback"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    artwork_id: Mapped[int] = mapped_column(ForeignKey("artworks.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[str] = mapped_column(String(24))
+    reasons_csv: Mapped[str] = mapped_column(String(500), default="")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UserSoulRevision(Base):
+    __tablename__ = "user_soul_revisions"
+    __table_args__ = (UniqueConstraint("user_id", "revision", name="uq_user_soul_revision"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    markdown: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserPublisherAccessRule(Base):
@@ -272,6 +352,12 @@ class AppSettings(Base):
     pexels_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     spotify_client_id_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     spotify_client_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    soul_markdown: Mapped[str] = mapped_column(Text, default="")
+    soul_revision: Mapped[int] = mapped_column(Integer, default=0)
+    art_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    featured_artwork_id: Mapped[int | None] = mapped_column(
+        ForeignKey("artworks.id", ondelete="SET NULL"), nullable=True
+    )
     discovery_prompt: Mapped[str] = mapped_column(
         Text,
         default="Lange Reportagen mit erzählerischer Tiefe, sorgfältiger Recherche und neuen Perspektiven.",

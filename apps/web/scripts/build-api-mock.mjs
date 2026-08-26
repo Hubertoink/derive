@@ -33,6 +33,7 @@ const home = {
   today: [],
   discover: [],
   podcasts: [],
+  artwork: null,
   authors: [],
   topics: [],
   hero_visual: { url: null, source_url: null, credit: null, alt: null },
@@ -65,7 +66,14 @@ const payloadFor = (pathname) => {
   if (pathname === "/api/v1/discovery/chat") return { provider: "disabled", provider_ready: false, messages: [] };
   if (pathname === "/api/v1/publisher-access") return [];
   if (pathname === "/api/v1/reading-profile") {
-    return { stats: { read_count: 0, saved_count: 0, feedback_count: 0 }, feedback: [], insights: [] };
+    return {
+      stats: { read_count: 0, saved_count: 0, feedback_count: 0 },
+      soul: { markdown: "", revision: 0, art_enabled: true, revisions: [] },
+      feedback: [],
+      podcast_feedback: [],
+      artwork_feedback: [],
+      insights: [],
+    };
   }
   return null;
 };
