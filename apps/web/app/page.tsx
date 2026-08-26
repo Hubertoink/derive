@@ -52,7 +52,25 @@ export default async function HomePage() {
 
   const home = await getHome();
   const lead = home.for_you[0] ?? home.today[0];
-  if (!lead) return null;
+  if (!lead) {
+    return (
+      <main className="page-shell home-shell">
+        <SiteHeader active="home" dateLabel={todayLabel} />
+        <section className="home-empty" aria-labelledby="empty-home-title">
+          <p className="kicker">Dein Leseraum ist bereit</p>
+          <h1 id="empty-home-title">Die erste Auswahl darf noch entstehen.</h1>
+          <p>
+            Starte eine KI-Suche, damit dérive passende Texte für deinen Leseraum
+            zusammenstellen kann. Danach erscheint deine Auswahl automatisch hier.
+          </p>
+          <div className="home-empty__actions">
+            <Link className="home-empty__primary" href="/ki">KI-Kurator öffnen <span aria-hidden="true">→</span></Link>
+            <Link className="home-empty__secondary" href="/einstellungen">Einstellungen prüfen</Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   const weeklyArticles = uniqueArticles([
     ...home.for_you.filter((article) => article.id !== lead.id),
