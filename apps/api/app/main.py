@@ -41,6 +41,7 @@ from .feeds import (
     validate_public_url,
 )
 from .auth import COOKIE_NAME, SESSION_TTL_DAYS, bootstrap_admin, create_invitation, create_session, current_admin, current_user, password_hasher, redeem_invitation, revoke_session, session_token_from_request, validate_account_fields, verify_password
+from .art import museum_name
 from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserArtwork, UserArtworkFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserSoulRevision, UserSourceMemory
 from .outbound_feed import build_rss_feed
 from .secrets import decrypt_secret, encrypt_secret
@@ -964,6 +965,7 @@ def serialize_artwork(artwork: Artwork, state: UserArtwork | None = None) -> dic
     return {
         "id": artwork.id,
         "provider": artwork.provider,
+        "museum_name": museum_name(artwork.provider),
         "provider_id": artwork.provider_id,
         "title": artwork.title,
         "artist_display": artwork.artist_display,

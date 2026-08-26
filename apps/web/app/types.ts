@@ -43,7 +43,8 @@ export type PodcastEpisode = {
 
 export type Artwork = {
   id: number;
-  provider: "artic" | string;
+  provider: "artic" | "met" | "cleveland" | string;
+  museum_name: string;
   provider_id: string;
   title: string;
   artist_display: string;

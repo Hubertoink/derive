@@ -15,7 +15,7 @@ Paywalls zeigt dérive den Hinweis und den Link, statt Zugänge zu umgehen.
 - Nutzerkontrollierte `SOUL.md` mit Import, Export und Versionsverlauf
 - Bestätigbares Langzeitgedächtnis mit transparenter Signalgewichtung
 - Einheitliches Feedback für Artikel, Podcasts und Kunstimpulse
-- Optionale Kunstspur mit gemeinfreien Werken des Art Institute of Chicago
+- Optionale Kunstspur mit gemeinfreien Werken aus drei offenen Museumssammlungen
 - Lokaler Chat-Kurator, Leseprofil und Merkliste
 - Geschlossener Mehrbenutzerbetrieb mit Einladungen
 
@@ -171,14 +171,18 @@ Läufe ein passendes Hero-Bild von Pexels und zeigt stets Urheber und
 Original-Link an.
 
 Die optionale **Kunstspur** benötigt keinen weiteren API-Schlüssel. Nach einem
-erfolgreichen Suchlauf fragt dérive die öffentliche
-[API des Art Institute of Chicago](https://api.artic.edu/docs/) nach einem
-assoziativ passenden Werk ab. Übernommen werden ausschließlich Datensätze, die
-die Museums-API ausdrücklich als `is_public_domain: true` kennzeichnet und für
-die ein Bild vorhanden ist. Werk, Urheberschaft, Datierung, Medium, Quelle,
-Rechtehinweis und Auswahlgrund bleiben sichtbar. Die Funktion lässt sich pro
-Nutzer in der `SOUL.md`-Sektion ausschalten; ein Ausfall der Museums-API lässt
-den eigentlichen Recherchelauf nicht scheitern.
+erfolgreichen Suchlauf fragt dérive rotierend die öffentlichen Sammlungen des
+[Art Institute of Chicago](https://api.artic.edu/docs/), des
+[Metropolitan Museum of Art](https://metmuseum.github.io/) und des
+[Cleveland Museum of Art](https://openaccess-api.clevelandart.org/) nach einem
+assoziativ passenden Werk ab. Übernommen werden ausschließlich Datensätze, deren
+jeweilige Museums-API den Public-Domain- oder CC0-Status ausdrücklich bestätigt
+und für die ein Bild vorhanden ist. Das aktuelle Werk erscheint auf „Für dich“
+zwischen Artikelauswahl und Podcasts und lässt sich dort als Großansicht öffnen.
+Werk, Urheberschaft, Datierung, Medium, Museum, Quelle, Rechtehinweis und
+Auswahlgrund bleiben sichtbar. Die Funktion lässt sich pro Nutzer in der
+`SOUL.md`-Sektion ausschalten; der Ausfall eines Museumsproviders lässt den
+eigentlichen Recherchelauf und die übrigen Provider nicht scheitern.
 
 Die zusätzlich benötigten Tabellen und Spalten werden beim Start der API
 automatisch und ohne Zurücksetzen bestehender Inhalte ergänzt. Ein Update von
