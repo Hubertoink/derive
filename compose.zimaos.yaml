@@ -1,9 +1,7 @@
 # dérive – ZimaOS deployment
 #
-# Upload this file together with the complete project directory. The build
-# contexts ./apps/api and ./apps/web must be present next to this file.
-# Create the administrator once via DERIVE_BOOTSTRAP_ADMIN_*; later users
-# receive invitation links from the account page.
+# API and web images are published by .github/workflows/publish-images.yml.
+# Before installing, replace every value surrounded by __...__ below.
 name: derive
 
 services:
@@ -11,9 +9,10 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-reado}
-      POSTGRES_USER: ${POSTGRES_USER:-reado}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-database-password}
+      POSTGRES_DB: reado
+      POSTGRES_USER: reado
+      # Use letters, numbers and hyphens only; it is also part of DATABASE_URL.
+      POSTGRES_PASSWORD: "__REPLACE_WITH_A_LONG_DATABASE_PASSWORD__"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -24,23 +23,20 @@ services:
     networks: [derive]
 
   api:
-    image: derive-api:latest
+    image: ghcr.io/hubertoink/derive-api:latest
     restart: unless-stopped
-    build:
-      context: ./apps/api
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reado:${POSTGRES_PASSWORD:-change-this-database-password}@postgres:5432/reado}
-      READO_PUBLIC_URL: ${READO_PUBLIC_URL:-http://localhost:3001}
-      READO_CORS_ORIGINS: ${READO_CORS_ORIGINS:-http://localhost:3001}
-      READO_SECRET_KEY: ${READO_SECRET_KEY:-change-this-to-a-long-random-secret}
-      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
-      DERIVE_BOOTSTRAP_ADMIN_USERNAME: ${DERIVE_BOOTSTRAP_ADMIN_USERNAME:-Hubertoink}
-      DERIVE_BOOTSTRAP_ADMIN_EMAIL: ${DERIVE_BOOTSTRAP_ADMIN_EMAIL:-hubertoink@outlook.com}
-      DERIVE_BOOTSTRAP_ADMIN_PASSWORD: ${DERIVE_BOOTSTRAP_ADMIN_PASSWORD:-change-this-test-password-now}
-      DERIVE_ALLOW_PUBLIC_SIGNUP: ${DERIVE_ALLOW_PUBLIC_SIGNUP:-false}
-      DERIVE_SESSION_TTL_DAYS: ${DERIVE_SESSION_TTL_DAYS:-14}
-      DERIVE_INVITE_LIFETIME_HOURS: ${DERIVE_INVITE_LIFETIME_HOURS:-48}
-      DERIVE_AUTH_SECURE_COOKIE: ${DERIVE_AUTH_SECURE_COOKIE:-false}
+      DATABASE_URL: "postgresql+psycopg://reado:__REPLACE_WITH_A_LONG_DATABASE_PASSWORD__@postgres:5432/reado"
+      # Do not change this after setup; it encrypts keys stored in PostgreSQL.
+      READO_SECRET_KEY: "__REPLACE_WITH_A_LONG_RANDOM_SECRET__"
+      DERIVE_BOOTSTRAP_ADMIN_USERNAME: "__YOUR_ADMIN_USERNAME__"
+      DERIVE_BOOTSTRAP_ADMIN_EMAIL: "__YOUR_ADMIN_EMAIL__"
+      DERIVE_BOOTSTRAP_ADMIN_PASSWORD: "__REPLACE_WITH_A_LONG_ADMIN_PASSWORD__"
+      DERIVE_ALLOW_PUBLIC_SIGNUP: "false"
+      DERIVE_SESSION_TTL_DAYS: "14"
+      DERIVE_INVITE_LIFETIME_HOURS: "48"
+      # Set to true only when served via HTTPS through a reverse proxy/domain.
+      DERIVE_AUTH_SECURE_COOKIE: "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,49 +48,55 @@ services:
     networks: [derive]
 
   worker:
-    image: derive-api:latest
-    restart: unless-stopped
+    image: ghcr.io/hubertoink/derive-api:latest
     command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://reado:${POSTGRES_PASSWORD:-change-this-database-password}@postgres:5432/reado}
-      READO_SECRET_KEY: ${READO_SECRET_KEY:-change-this-to-a-long-random-secret}
-      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      DATABASE_URL: "postgresql+psycopg://reado:__REPLACE_WITH_A_LONG_DATABASE_PASSWORD__@postgres:5432/reado"
+      READO_SECRET_KEY: "__REPLACE_WITH_A_LONG_RANDOM_SECRET__"
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "from app.database import engine; connection = engine.connect(); connection.exec_driver_sql('SELECT 1'); connection.close()"]
-      interval: 10s
-      timeout: 10s
-      retries: 6
     networks: [derive]
 
   web:
-    image: derive-web:latest
+    image: ghcr.io/hubertoink/derive-web:latest
     restart: unless-stopped
-    build:
-      context: ./apps/web
-      args:
-        NEXT_PUBLIC_API_URL: ""
     environment:
-      CURATOR_API_URL: http://api:8000
+      CURATOR_API_URL: "http://api:8000"
       NEXT_PUBLIC_API_URL: ""
     depends_on:
       api:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
     ports:
-      - "3001:3000"
+      - target: 3000
+        published: "${WEBUI_PORT:-3101}"
+        protocol: tcp
     networks: [derive]
 
 networks:
   derive:
 
 volumes:
+  # Named volumes survive container restarts and `docker compose down`.
   derive-postgres-data:
+
+x-casaos:
+  architectures:
+    - amd64
+  main: web
+  author: Hubertoink
+  developer: Hubertoink
+  category: Utilities
+  icon: "https://raw.githubusercontent.com/Hubertoink/derive/main/assets/derive_fordarkmode.png"
+  title:
+    en_us: "dérive"
+  tagline:
+    en_us: "Personal reading room and AI curator"
+  description:
+    en_us: "A private multi-user reading room for long-form articles and podcasts."
+  index: /
+  port_map: "${WEBUI_PORT:-3101}"
+  scheme: http
