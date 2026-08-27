@@ -347,7 +347,7 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
         </div>
         <div className="discovery-activity__copy">
           {status.automation.enabled ? (
-            <p>Solange dein Docker-Stack läuft, prüft der dérive-Worker jede Minute, ob deine <strong>{profile.frequency === "manual" ? frequencyLabels.manual : `${formatIntervalDays(profile.interval_days)} um ${profile.delivery_time}`}</strong> Suche fällig ist. Zusätzlich füllt er den Vorrat bei Bedarf automatisch etwa alle {status.automation.background_interval_hours} Stunden mit passenden Artikeln auf. Der nächste reguläre Lauf beginnt frühestens {status.automation.next_due_at ? formatDate(status.automation.next_due_at) : "nach dem Start des Workers"} ({profile.timezone}).</p>
+            <p>Solange dein Docker-Stack läuft, prüft der dérive-Worker jede Minute, ob deine <strong>{profile.frequency === "manual" ? frequencyLabels.manual : `${formatIntervalDays(profile.interval_days)} um ${profile.delivery_time}`}</strong> Suche fällig ist. Zusätzlich füllt er den bis zur Lieferung verborgenen Vorrat bei Bedarf automatisch etwa alle {status.automation.background_interval_hours} Stunden mit passenden Artikeln auf. Alte ungelesene Texte und Chat-Recherchen zählen dabei nicht als Vorrat. Der nächste reguläre Lauf beginnt frühestens {status.automation.next_due_at ? formatDate(status.automation.next_due_at) : "nach dem Start des Workers"} ({profile.timezone}).</p>
           ) : (
             <p>Die automatische Suche ist aus. Wähle einen Rhythmus und richte OpenAI vollständig ein, damit der Docker-Worker neue Texte für dich suchen kann.</p>
           )}
@@ -361,7 +361,7 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
                 <li key={run.id} className={run.status === "success" ? "is-success" : "is-failed"}>
                   <time dateTime={run.ran_at}>{formatDate(run.ran_at)}</time>
                   <span>{run.trigger === "background" ? "Vorratssuche" : run.trigger === "automatic" ? "Automatisch" : run.trigger === "chat" ? "Chat-Recherche" : "Manuell"}</span>
-                  <strong>{run.status === "success" ? `${run.imported_count} neue ${run.imported_count === 1 ? "Empfehlung" : "Empfehlungen"}${run.total_tokens ? ` (${formatTokens(run.total_tokens)} Token)` : ""}` : "Suche fehlgeschlagen"}</strong>
+                  <strong>{run.status === "success" ? `${run.imported_count} ${run.trigger === "background" ? (run.imported_count === 1 ? "Empfehlung vorbereitet" : "Empfehlungen vorbereitet") : (run.imported_count === 1 ? "neue Empfehlung" : "neue Empfehlungen")}${run.total_tokens ? ` (${formatTokens(run.total_tokens)} Token)` : ""}` : "Suche fehlgeschlagen"}</strong>
                   {run.message ? <p>{run.message}</p> : null}
                 </li>
               ))}

@@ -54,6 +54,7 @@ class UserArticle(Base):
     article_id: Mapped[int] = mapped_column(ForeignKey("articles.id", ondelete="CASCADE"), index=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_saved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    discovery_origin: Mapped[str] = mapped_column(String(24), default="legacy", index=True)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

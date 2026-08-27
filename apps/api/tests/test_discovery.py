@@ -231,6 +231,41 @@ def test_one_off_research_does_not_move_the_regular_schedule(monkeypatch):
         assert settings.discovery_last_run_at is None
 
 
+def test_import_marks_background_results_as_staged(monkeypatch):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr("app.discovery.validate_public_url", lambda value: value)
+
+    with Session(engine) as session:
+        user = User(username="stock-reader", email="stock@example.org", password_hash="unused")
+        settings = AppSettings(discovery_min_minutes=15, discovery_max_articles=5)
+        session.add_all([user, settings])
+        session.flush()
+        imported = import_candidates(
+            session,
+            settings,
+            [{
+                "title": "Eine vorbereitete Reportage",
+                "url": "https://example.com/prepared",
+                "author": "Ada Autorin",
+                "source": "Testquelle",
+                "published_at": "2026-08-27T05:00:00Z",
+                "reading_minutes": 20,
+                "topics": ["Gesellschaft"],
+                "reason": "Passt.",
+                "summary": "Kurze Einordnung.",
+                "access_status": "free",
+            }],
+            user=user,
+            discovery_origin="background",
+            update_schedule=False,
+        )
+
+        link = session.scalar(select(UserArticle).where(UserArticle.article_id == imported[0].id))
+        assert link.discovery_origin == "background"
+        assert settings.discovery_last_run_at is None
+
+
 def test_import_skips_tracking_url_duplicates(monkeypatch):
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

@@ -317,6 +317,7 @@ Suchprofil oder den Suchrhythmus zu verändern:
             max_articles=requested_articles,
             update_schedule=False,
             user=user,
+            discovery_origin="chat",
         )
     podcasts = []
     podcast_usage = (0, 0, 0)

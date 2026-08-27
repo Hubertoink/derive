@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import html
 import json
@@ -112,6 +112,7 @@ class DiscoveryRunResult:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    candidates: list[dict] = field(default_factory=list)
 
 
 def _csv(value: str) -> list[str]:
@@ -925,6 +926,7 @@ def import_candidates(
     max_articles: int | None = None,
     update_schedule: bool = True,
     user: User | None = None,
+    discovery_origin: str = "manual",
 ) -> list[Article]:
     imported: list[Article] = []
     known_urls = {
@@ -943,7 +945,12 @@ def import_candidates(
         if canonical_url in known_urls:
             existing = session.scalar(select(Article).where(Article.canonical_url == canonical_url))
             if existing and user and session.scalar(select(UserArticle.id).where(UserArticle.user_id == user.id, UserArticle.article_id == existing.id)) is None:
-                session.add(UserArticle(user_id=user.id, article_id=existing.id, discovered_at=now))
+                session.add(UserArticle(
+                    user_id=user.id,
+                    article_id=existing.id,
+                    discovered_at=now,
+                    discovery_origin=discovery_origin,
+                ))
                 imported.append(existing)
             continue
 
@@ -996,7 +1003,12 @@ def import_candidates(
                 session.add(article)
                 session.flush()
                 if user:
-                    session.add(UserArticle(user_id=user.id, article_id=article.id, discovered_at=now))
+                    session.add(UserArticle(
+                        user_id=user.id,
+                        article_id=article.id,
+                        discovered_at=now,
+                        discovery_origin=discovery_origin,
+                    ))
             imported.append(article)
             known_urls.add(canonical_url)
             if user:
@@ -1026,6 +1038,8 @@ async def run_discovery(
     max_articles: int | None = None,
     update_schedule: bool = True,
     include_podcasts: bool = True,
+    discovery_origin: str = "manual",
+    refresh_presentation: bool = True,
 ) -> DiscoveryRunResult:
     if user is None and settings.user_id:
         user = session.get(User, settings.user_id)
@@ -1036,7 +1050,13 @@ async def run_discovery(
         settings, prompt_override, memory, max_articles=max_articles, session=session, user=user
     )
     articles = import_candidates(
-        session, settings, candidates, max_articles=max_articles, update_schedule=update_schedule, user=user
+        session,
+        settings,
+        candidates,
+        max_articles=max_articles,
+        update_schedule=update_schedule,
+        user=user,
+        discovery_origin=discovery_origin,
     )
     podcasts: list[PodcastEpisode] = []
     podcast_usage = (0, 0, 0)
@@ -1049,10 +1069,10 @@ async def run_discovery(
         except DiscoveryError as error:
             # Podcasts enrich a run but must never discard already imported texts.
             logger.warning("Optional podcast discovery failed: %s", error)
-    if await refresh_hero_visual(settings, candidates):
+    if refresh_presentation and await refresh_hero_visual(settings, candidates):
         session.commit()
     try:
-        if await refresh_artwork_impression(session, settings, candidates, user):
+        if refresh_presentation and await refresh_artwork_impression(session, settings, candidates, user):
             session.commit()
     except Exception:
         logger.warning("Optional artwork discovery failed", exc_info=True)
@@ -1063,6 +1083,7 @@ async def run_discovery(
         input_tokens=usage[0] + podcast_usage[0],
         output_tokens=usage[1] + podcast_usage[1],
         total_tokens=usage[2] + podcast_usage[2],
+        candidates=candidates,
     )
 
 
@@ -1091,7 +1112,13 @@ async def run_discovery_stream(
         total_tokens += usage[2]
         all_candidates.extend(candidates)
         articles = import_candidates(
-            session, settings, candidates, max_articles=requested, update_schedule=False, user=user
+            session,
+            settings,
+            candidates,
+            max_articles=requested,
+            update_schedule=False,
+            user=user,
+            discovery_origin="manual",
         )
         imported_count += len(articles)
         yield {

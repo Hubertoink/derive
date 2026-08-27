@@ -305,6 +305,7 @@ def ensure_schema() -> None:
     run_identity_columns = {column["name"] for column in inspect(engine).get_columns("discovery_runs")}
     settings_identity_columns = {column["name"] for column in inspect(engine).get_columns("app_settings")}
     article_feedback_columns = {column["name"] for column in inspect(engine).get_columns("user_article_feedback")}
+    user_article_columns = {column["name"] for column in inspect(engine).get_columns("user_articles")}
     insight_columns = {column["name"] for column in inspect(engine).get_columns("user_reading_insights")}
     with engine.begin() as connection:
         for name, definition in additions.items():
@@ -316,6 +317,15 @@ def ensure_schema() -> None:
         for name, definition in run_additions.items():
             if name not in run_columns:
                 connection.execute(text(f"ALTER TABLE discovery_runs ADD COLUMN {name} {definition}"))
+        if "discovery_origin" not in user_article_columns:
+            connection.execute(text(
+                "ALTER TABLE user_articles ADD COLUMN discovery_origin "
+                "VARCHAR(24) NOT NULL DEFAULT 'legacy'"
+            ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_user_articles_discovery_origin "
+            "ON user_articles (discovery_origin)"
+        ))
         for name, definition in podcast_additions.items():
             if name not in podcast_columns:
                 connection.execute(text(f"ALTER TABLE podcast_episodes ADD COLUMN {name} {definition}"))
@@ -548,7 +558,11 @@ def serialize_article(article: Article, include_content: bool = False, state: Us
         "source_url": article.source.url,
         "discovery_method": article.discovery_method,
         "curation_reason": curation_reason,
-        "discovered_at": article.discovered_at.isoformat() if article.discovered_at else None,
+        "discovered_at": (
+            state.discovered_at.isoformat()
+            if state is not None and state.discovered_at
+            else article.discovered_at.isoformat() if article.discovered_at else None
+        ),
         "access_status": article.access_status,
         "fulltext_source": article.fulltext_source,
         "rights_basis": article.rights_basis,
@@ -582,7 +596,10 @@ def article_query():
 
 
 def user_article_query(user: User):
-    return article_query().join(UserArticle, UserArticle.article_id == Article.id).where(UserArticle.user_id == user.id)
+    return article_query().join(UserArticle, UserArticle.article_id == Article.id).where(
+        UserArticle.user_id == user.id,
+        UserArticle.discovery_origin != "background",
+    )
 
 
 def article_states(session: Session, user: User, article_ids: list[int]) -> dict[int, UserArticle]:

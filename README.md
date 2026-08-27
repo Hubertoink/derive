@@ -31,6 +31,11 @@ Paywalls zeigt dérive den Hinweis und den Link, statt Zugänge zu umgehen.
 Der Worker muss dauerhaft laufen, wenn automatische Suchen gewünscht sind.
 Beim Start holt er einen überfälligen Lauf nach. Die Quellen-Memory wird beim
 ersten Start aus bereits gespeicherten KI-Empfehlungen aufgebaut.
+Zwischen zwei Lieferterminen füllt der Worker den persönlichen Vorrat bei
+Bedarf etwa alle drei Stunden. Diese Hintergrundfunde bleiben bis zum nächsten
+Liefertermin verborgen; alte ungelesene Texte und Ad-hoc-Chat-Recherchen zählen
+nicht als Vorrat. Bei der Lieferung werden die vorbereiteten Texte gemeinsam
+freigegeben und die Kunstspur passend zu dieser Auswahl erneuert.
 
 ## Lokaler Start
 
