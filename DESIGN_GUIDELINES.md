@@ -29,7 +29,8 @@ Nutze maximal eine farbige Fläche pro Inhaltsgruppe. `--ink` auf `--porcelain` 
 
 - **Display und Inhalte:** `Georgia, "Times New Roman", serif`. Große, normale Schnitte; enges Letterspacing bei Überschriften (`-0.04em` bis `-0.06em`).
 - **Navigation und Metadaten:** `Arial, Helvetica, sans-serif`. Klein, präzise, mit erhöhter Laufweite.
-- **Überschriften:** groß, kompakt und maximal zweizeilig, wenn möglich. Keine zusätzliche Über-Überschrift; ein kurzer Kicker reicht zur Einordnung.
+- **Überschriften:** groß, kompakt und maximal zweizeilig, wenn möglich.
+- **Keine Über-Überschriften:** Vor einer Hauptüberschrift steht keine zusätzliche beschreibende Zeile wie „Im Archiv finden“. Die Überschrift trägt die Einordnung selbst; Kicker bleiben auf klare redaktionelle Herkunftsangaben (z. B. eine Quelle) beschränkt.
 - **Kicker:** Großbuchstaben, etwa `0.67rem`, fett, `0.15em` Laufweite.
 - **Fließtext:** Serif, großzügige Zeilenhöhe (mindestens `1.4`). Lesbarkeit hat Vorrang vor Informationsdichte.
 
