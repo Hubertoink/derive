@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { IconBookmark, IconMessageCircle, IconMoon, IconSearch, IconSparkles, IconSun, IconUser, IconX } from "@tabler/icons-react";
+import { IconBookmark, IconMessageCircle, IconMoon, IconPlayerStop, IconSearch, IconSparkles, IconSun, IconUser, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getArticles } from "../api";
 import { Article } from "../types";
+import { useBackgroundOperations } from "./BackgroundOperations";
 import { SearchOverlay } from "./SearchOverlay";
 
 export function FloatingMenu() {
@@ -15,6 +16,10 @@ export function FloatingMenu() {
   const [searchError, setSearchError] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const { operations, cancelOperation } = useBackgroundOperations();
+  const operationLabel = operations.length === 1
+    ? `${operations[0].label} läuft`
+    : `${operations.length} KI-Läufe laufen`;
 
   useEffect(() => {
     const syncTheme = () => setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
@@ -66,8 +71,20 @@ export function FloatingMenu() {
   }
 
   return <>
-    <nav className={`floating-menu${isOpen ? " is-open" : ""}`} aria-label="Schnellzugriffe">
+    <nav className={`floating-menu${isOpen ? " is-open" : ""}${operations.length ? " has-running-operation" : ""}`} aria-label="Schnellzugriffe">
       <div className="floating-menu__actions" id="floating-menu-actions">
+        {operations.map((operation) => (
+          <button
+            className="floating-menu__action floating-menu__action--cancel"
+            type="button"
+            key={operation.id}
+            onClick={() => cancelOperation(operation.id)}
+            aria-label={`${operation.label} abbrechen`}
+            data-label={`${operation.label} abbrechen`}
+          >
+            <IconPlayerStop aria-hidden="true" strokeWidth={1.7} />
+          </button>
+        ))}
         <button ref={searchButtonRef} className="floating-menu__action" type="button" onClick={() => void openSearch()} aria-label="Archiv durchsuchen" data-label="Suche">
           <IconSearch aria-hidden="true" strokeWidth={1.7} />
         </button>
@@ -87,8 +104,9 @@ export function FloatingMenu() {
           {theme === "dark" ? <IconSun aria-hidden="true" strokeWidth={1.7} /> : <IconMoon aria-hidden="true" strokeWidth={1.7} />}
         </button>
       </div>
-      <button className="floating-menu__toggle" type="button" aria-expanded={isOpen} aria-controls="floating-menu-actions" onClick={() => setIsOpen((open) => !open)}>
+      <button className="floating-menu__toggle" type="button" aria-expanded={isOpen} aria-controls="floating-menu-actions" aria-label={operations.length ? `${operationLabel}. Schnellzugriffe ${isOpen ? "schließen" : "öffnen"}` : undefined} onClick={() => setIsOpen((open) => !open)}>
         <span className="sr-only">Schnellzugriffe {isOpen ? "schließen" : "öffnen"}</span>
+        {operations.length ? <span className="sr-only" role="status" aria-live="polite">{operationLabel}. Im Menü kannst du den Lauf abbrechen.</span> : null}
         <IconX className="floating-menu__close-icon" aria-hidden="true" strokeWidth={1.6} />
         <span className="floating-menu__plus" aria-hidden="true" />
       </button>

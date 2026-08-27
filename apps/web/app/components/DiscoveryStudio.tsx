@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import { getDiscovery, runDiscovery, saveDiscoveryProfile, updateDiscoverySource } from "../api";
+import { getDiscovery, saveDiscoveryProfile, updateDiscoverySource } from "../api";
 import { Article, DiscoveryChatStatus, DiscoveryProfile, DiscoveryStatus } from "../types";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { CuratorChat } from "./CuratorChat";
@@ -11,6 +11,7 @@ import { formatDiscoveryDate } from "./ArticleRow";
 import { PodcastRecommendations } from "./PodcastRecommendations";
 import { ReflectionQuestions } from "./ReflectionQuestions";
 import { SaveArticleButton } from "./SaveArticleButton";
+import { useBackgroundOperations } from "./BackgroundOperations";
 
 const suggestions = [
   "Europäische Technologiepolitik, Macht und Gesellschaft",
@@ -54,6 +55,7 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
   const [notice, setNotice] = useState("");
   const [sourceDraft, setSourceDraft] = useState("");
   const [progress, setProgress] = useState<{ phase: "articles" | "podcasts"; batch: number; batches: number; found: number; podcasts: number; tokens: number } | null>(null);
+  const { startDiscovery } = useBackgroundOperations();
   const deprioritizedSources = profile.deprioritized_sources ?? [];
   const learnedSources = useMemo(
     () => status.sources.filter((source) => source.origin === "learned" || source.observed_count > 0),
@@ -156,7 +158,7 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
       const saved = await saveDiscoveryProfile(profile);
       setStatus(saved);
       setProfile(saved.profile);
-      const next = await runDiscovery(undefined, (event) => {
+      const next = await startDiscovery(undefined, (event) => {
         partialImported = Math.max(partialImported, event.found_count ?? 0);
         setProgress({ phase: event.phase ?? "articles", batch: event.batch, batches: event.batches, found: event.found_count, podcasts: event.podcasts_found ?? 0, tokens: event.total_tokens });
         setStatus((current) => {
@@ -180,6 +182,10 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
           : "Heute ist nichts Neues durch den Qualitätsfilter gekommen."
       );
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setNotice("Die KI-Suche wurde abgebrochen. Bereits gespeicherte Ergebnisse bleiben erhalten.");
+        return;
+      }
       const rawMessage = (error as Error).message || "Die KI-Suche konnte nicht abgeschlossen werden.";
       const message = /network|fetch|load failed/i.test(rawMessage)
         ? "Die Verbindung zur KI-Suche wurde unterbrochen."

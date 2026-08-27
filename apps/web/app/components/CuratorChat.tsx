@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
-import { clearDiscoveryChat, getDiscovery, researchDiscoveryChat, sendDiscoveryChat } from "../api";
+import { clearDiscoveryChat, getDiscovery } from "../api";
 import { Article, DiscoveryChatStatus, DiscoveryStatus, PodcastEpisode } from "../types";
 import { PodcastRecommendations } from "./PodcastRecommendations";
 import { SaveArticleButton } from "./SaveArticleButton";
+import { useBackgroundOperations } from "./BackgroundOperations";
 
 type ChatMode = "research" | "chat";
 
@@ -29,6 +30,7 @@ export function CuratorChat({
   const [maxPodcasts, setMaxPodcasts] = useState<"auto" | "0" | "1" | "2" | "3">("auto");
   const [breadth, setBreadth] = useState<"focused" | "balanced" | "expansive">("balanced");
   const [mode, setMode] = useState<ChatMode>("research");
+  const { startChat, startResearch } = useBackgroundOperations();
   const seenUserMessages = new Set<string>();
   const visibleMessages = status.messages.filter((item, index, all) => {
     if (item.role === "user") {
@@ -50,8 +52,13 @@ export function CuratorChat({
     setNotice("");
     setMessage("");
     try {
-      setStatus(await sendDiscoveryChat(value));
+      setStatus(await startChat(value));
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setMessage(value);
+        setNotice("Der Chat wurde abgebrochen.");
+        return;
+      }
       setMessage(value);
       setNotice((error as Error).message);
     } finally {
@@ -69,7 +76,7 @@ export function CuratorChat({
     setBusy(true);
     setNotice("");
     try {
-      const result = await researchDiscoveryChat(value, requestedArticleMax, maxPodcasts === "auto" ? null : Number(maxPodcasts), breadth);
+      const result = await startResearch(value, requestedArticleMax, maxPodcasts === "auto" ? null : Number(maxPodcasts), breadth);
       setMessage("");
       setStatus(result.chat);
       setResearchArticles(result.articles);
@@ -78,6 +85,10 @@ export function CuratorChat({
       const resultCount = result.articles.length + result.podcasts.length;
       setNotice(resultCount ? `${result.articles.length} Texte und ${result.podcasts.length} Podcasts sind bereit.` : "Es wurden keine neuen, passenden Originalquellen gefunden.");
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setNotice("Die Recherche wurde abgebrochen. Bereits gespeicherte Ergebnisse bleiben erhalten.");
+        return;
+      }
       const message = (error as Error).message || "Die Recherche konnte nicht abgeschlossen werden.";
       if (!/returned 5\d\d|network|fetch|load failed/i.test(message)) {
         setNotice(message);

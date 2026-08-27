@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { ThemeController } from "./components/ThemeController";
+import { BackgroundOperationsProvider } from "./components/BackgroundOperations";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="de">
-      <body><ThemeController />{children}</body>
+      <body><BackgroundOperationsProvider><ThemeController />{children}</BackgroundOperationsProvider></body>
     </html>
   );
 }

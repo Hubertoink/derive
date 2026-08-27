@@ -205,6 +205,8 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
 .floating-menu.is-open .floating-menu__actions { opacity: 1; pointer-events: auto; transform: translate(0, -50%); }
 .floating-menu__toggle, .floating-menu__action { width: 56px; height: 56px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ink); color: var(--porcelain); }
 .floating-menu__toggle { position: relative; cursor: pointer; box-shadow: 0 10px 28px rgba(38, 52, 59, .2); }
+.floating-menu.has-running-operation .floating-menu__toggle::before { position: absolute; inset: -8px; border: 2px solid var(--tea-green); border-radius: 50%; box-shadow: 0 0 22px 5px color-mix(in srgb, var(--tea-green) 72%, transparent); content: ""; pointer-events: none; animation: floating-menu-glow 1.8s ease-in-out infinite; }
+.floating-menu__action--cancel { background: var(--tea-green); color: var(--ink); }
 .floating-menu__toggle:hover, .floating-menu__action:hover { background: var(--slate-grey); color: var(--porcelain); }
 .floating-menu__action { position: relative; cursor: pointer; text-decoration: none; transform: scale(.82); transition: background 160ms ease, color 160ms ease, transform 220ms cubic-bezier(.2, .8, .2, 1); }
 .floating-menu.is-open .floating-menu__action { transform: scale(1); }
@@ -217,6 +219,7 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
 .floating-menu__close-icon { position: absolute; width: 24px; height: 24px; opacity: 0; transform: rotate(-35deg) scale(.6); transition: opacity 180ms ease, transform 220ms ease; }
 .floating-menu.is-open .floating-menu__plus { transform: rotate(90deg) scale(.65); opacity: 0; }.floating-menu.is-open .floating-menu__close-icon { opacity: 1; transform: rotate(0) scale(1); }
 .floating-menu-target { position: absolute; top: 0; }
+@keyframes floating-menu-glow { 0%, 100% { opacity: .7; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.08); } }
 
 /* Feed management */
 .feeds-intro { padding: 72px 0 45px; max-width: 700px; }
@@ -440,7 +443,7 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
   .account-intro { display: block; padding: 48px 0 28px; }.account-intro > p:last-child { margin-top: 22px; }.account-panel { display: block; margin-top: 38px; }.account-panel__logout { margin-top: 18px; }.account-admin { margin-top: 32px; }.account-admin form { display: block; }.account-admin button { margin-top: 8px; }.account-users li { grid-template-columns: 1fr; gap: 4px; }
   .discovery-shell { width: calc(100% - 32px); }.discovery-header { min-height: 70px; }.discovery-layout { display: block; padding-top: 45px; }.discovery-intro { display: block; padding-bottom: 28px; }.discovery-intro h1 { font-size: clamp(3.3rem, 15vw, 5rem); }.discovery-intro > p:last-child { margin-top: 24px; }.discovery-controls { margin-top: 20px; padding: 24px 20px; }.discovery-activity { display: block; margin-top: 42px; }.discovery-activity__copy { margin-top: 18px; }.discovery-run-log { margin-top: 24px; padding: 20px 0 0; border-top: 1px solid var(--rule); border-left: 0; }.discovery-run-log li { grid-template-columns: 1fr 1fr; }.discovery-run-log li strong { grid-column: 1 / -1; }.discovery-results { margin-top: 65px; }.discovery-result-list { display: block; }.curator-chat { margin-top: 35px; padding: 22px 16px; }.curator-chat__heading { align-items: start; flex-direction: column; }.chat-message { max-width: 92%; }.curator-chat__form { display: block; }.curator-chat__form textarea { width: 100%; }.curator-chat__form button { width: 100%; padding: 12px; margin-top: 8px; }.publisher-rules { display: block; }.publisher-rules article { min-height: 0; border-right: 0; border-bottom: 1px solid var(--rule); }.publisher-rules article > button { margin-top: 10px; }
 }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }.floating-menu.has-running-operation .floating-menu__toggle::before { animation: none; } }
 
 @media (max-width: 440px) {
   .site-header nav { flex-basis: 100%; justify-content: space-between; gap: 4px 11px; }

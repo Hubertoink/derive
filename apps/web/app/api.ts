@@ -203,11 +203,13 @@ export async function updateDiscoverySource(
 export async function runDiscovery(
   prompt?: string,
   onProgress?: (event: DiscoveryProgressEvent) => void,
+  signal?: AbortSignal,
 ): Promise<DiscoveryStatus & { imported: number; recovered?: boolean }> {
   const response = await browserFetch("/api/v1/discovery/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt: prompt?.trim() || null }),
+    signal,
   });
   if (!response.ok) return apiError(response);
   const reader = response.body?.getReader();
@@ -240,6 +242,7 @@ export async function runDiscovery(
       if (chunk.done) break;
     }
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
     streamError = error instanceof Error ? error : new Error("Die Netzwerkverbindung zur KI-Suche wurde unterbrochen.");
   }
   if (buffer.trim()) {
@@ -267,11 +270,12 @@ export async function getDiscoveryChat(): Promise<DiscoveryChatStatus> {
   return response.json() as Promise<DiscoveryChatStatus>;
 }
 
-export async function sendDiscoveryChat(message: string): Promise<DiscoveryChatStatus> {
+export async function sendDiscoveryChat(message: string, signal?: AbortSignal): Promise<DiscoveryChatStatus> {
   const response = await browserFetch("/api/v1/discovery/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
+    signal,
   });
   if (!response.ok) return apiError(response);
   return response.json() as Promise<DiscoveryChatStatus>;
@@ -282,11 +286,13 @@ export async function researchDiscoveryChat(
   maxArticles: number,
   maxPodcasts: number | null,
   breadth: "focused" | "balanced" | "expansive",
+  signal?: AbortSignal,
 ): Promise<DiscoveryChatResearch> {
   const response = await browserFetch("/api/v1/discovery/chat/research", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, max_articles: maxArticles, max_podcasts: maxPodcasts, breadth }),
+    signal,
   });
   if (!response.ok) return apiError(response);
   return response.json() as Promise<DiscoveryChatResearch>;
