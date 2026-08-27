@@ -287,6 +287,14 @@ export type ReadingQuestion = {
   options: { value: string; label: string }[];
   status: "open" | "answered" | "skipped" | string;
   answer?: string | null;
+  source: "ai" | "rule" | string;
+};
+
+export type QuestionGenerationResult = {
+  profile: ReadingProfile;
+  generated: number;
+  source: "ai" | "rule" | "none";
+  message: string;
 };
 
 export type ReadingProfile = {

@@ -1,4 +1,4 @@
-import { AIConnectionResult, AISetup, Article, ArticleFeedback, DiscoveryChatResearch, DiscoveryChatStatus, DiscoveryProfile, DiscoveryProgressEvent, DiscoveryStatus, Home, PodcastEpisode, PreferenceFeedback, PreferenceReason, ReadingProfile, SetupPayload, SetupResult, SetupStatus, SpotifyConnectionResult, SpotifySetup } from "./types";
+import { AIConnectionResult, AISetup, Article, ArticleFeedback, DiscoveryChatResearch, DiscoveryChatStatus, DiscoveryProfile, DiscoveryProgressEvent, DiscoveryStatus, Home, PodcastEpisode, PreferenceFeedback, PreferenceReason, QuestionGenerationResult, ReadingProfile, SetupPayload, SetupResult, SetupStatus, SpotifyConnectionResult, SpotifySetup } from "./types";
 
 // Empty by default: Next.js proxies /api/v1 to the internal API container.
 // A public API URL remains possible for local development only.
@@ -127,6 +127,12 @@ export async function answerReadingQuestion(
   });
   if (!result.ok) return apiError(result);
   return result.json() as Promise<ReadingProfile>;
+}
+
+export async function generateReadingQuestions(): Promise<QuestionGenerationResult> {
+  const response = await browserFetch("/api/v1/reading-questions/generate", { method: "POST" });
+  if (!response.ok) return apiError(response);
+  return response.json() as Promise<QuestionGenerationResult>;
 }
 
 export async function saveSoul(markdown: string, artEnabled: boolean): Promise<ReadingProfile> {

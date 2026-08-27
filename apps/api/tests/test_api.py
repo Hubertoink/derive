@@ -348,6 +348,71 @@ def test_open_reading_questions_can_be_answered_and_remain_transparent(isolated_
     assert next(item for item in refreshed["questions"] if item["key"] == question["key"])["status"] == "answered"
 
 
+def test_dynamic_reading_questions_are_generated_once_per_profile_signal(isolated_client, monkeypatch):
+    setup = isolated_client.post(
+        "/api/v1/setup",
+        json={
+            "display_name": "Ada",
+            "preferred_languages": ["Deutsch"],
+            "discovery_languages": ["Deutsch"],
+            "interests": ["Technologie"],
+            "discovery_prompt": "Sorgfältig recherchierte Reportagen",
+            "reading_length": "long",
+            "theme": "light",
+            "ai": {
+                "provider": "ollama",
+                "base_url": "http://ollama:11434",
+                "model": "llama3.2",
+            },
+        },
+    )
+    assert setup.status_code == 200
+
+    articles = isolated_client.get("/api/v1/articles").json()[:2]
+    for article in articles:
+        response = isolated_client.put(
+            f"/api/v1/articles/{article['id']}/feedback",
+            json={"rating": "great"},
+        )
+        assert response.status_code == 200
+
+    calls = []
+
+    async def fake_generate_profile_questions(settings, reader_memory, seed_questions):
+        calls.append((settings.ai_provider, reader_memory, seed_questions))
+        return [
+            {
+                "kind": "quality",
+                "question": "Was macht einen starken Artikel für dich besonders wertvoll?",
+                "context": "So kann Derive künftige Empfehlungen genauer gewichten.",
+                "basis": "Du hast zuletzt zwei Artikel positiv bewertet, aber noch keinen Grund genannt.",
+                "options": [
+                    {"value": "depth", "label": "Gedankliche Tiefe"},
+                    {"value": "perspective", "label": "Neue Perspektive"},
+                ],
+            }
+        ]
+
+    monkeypatch.setattr("app.main.generate_profile_questions", fake_generate_profile_questions)
+
+    generated = isolated_client.post("/api/v1/reading-questions/generate")
+
+    assert generated.status_code == 200
+    assert generated.json()["generated"] == 1
+    assert generated.json()["source"] == "ai"
+    question = generated.json()["profile"]["questions"][0]
+    assert question["key"].startswith("ai-")
+    assert question["source"] == "ai"
+    assert question["question"] == "Was macht einen starken Artikel für dich besonders wertvoll?"
+    assert len(calls) == 1
+
+    repeated = isolated_client.post("/api/v1/reading-questions/generate")
+
+    assert repeated.status_code == 200
+    assert repeated.json()["generated"] == 0
+    assert len(calls) == 1
+
+
 def test_podcast_and_artwork_feedback_use_the_same_explicit_vocabulary(isolated_client):
     podcast = isolated_client.get("/api/v1/podcasts").json()[0]
     home = isolated_client.get("/api/v1/home").json()

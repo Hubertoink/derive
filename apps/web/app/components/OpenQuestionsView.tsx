@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { answerReadingQuestion } from "../api";
+import { answerReadingQuestion, generateReadingQuestions } from "../api";
 import { ReadingProfile, ReadingQuestion } from "../types";
 
 export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
@@ -11,7 +11,32 @@ export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
   const [options, setOptions] = useState<Record<string, string | undefined>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
   const [notice, setNotice] = useState("");
+  const generationRequested = useRef(false);
+
+  async function generate() {
+    if (generating) return;
+    setGenerating(true);
+    setNotice("");
+    try {
+      const result = await generateReadingQuestions();
+      setQuestions(result.profile.questions.filter((item) => item.status === "open"));
+      setNotice(result.message);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Neue Fragen konnten nicht geprüft werden.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  useEffect(() => {
+    if (initial.length || generationRequested.current) return;
+    generationRequested.current = true;
+    void generate();
+    // The first automatic check is intentionally limited to one request per page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>, question: ReadingQuestion) {
     event.preventDefault();
@@ -70,7 +95,7 @@ export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
             const selected = options[question.key];
             return (
               <form className="open-question-card" key={question.key} onSubmit={(event) => void submit(event, question)}>
-                <div className="open-question-card__meta"><span>{question.kind === "format" ? "Leseform" : question.kind === "quality" ? "Qualität" : "Entdeckung"}</span><small>{question.basis}</small></div>
+                <div className="open-question-card__meta"><span>{question.kind === "format" ? "Leseform" : question.kind === "topic" ? "Thema" : question.kind === "perspective" ? "Perspektive" : question.kind === "source" ? "Quelle" : question.kind === "rhythm" ? "Rhythmus" : question.kind === "quality" ? "Qualität" : "Entdeckung"}{question.source === "ai" ? " · KI-formuliert" : ""}</span><small>{question.basis}</small></div>
                 <h3>{question.question}</h3>
                 <p>{question.context}</p>
                 <div className="open-question-card__options" role="group" aria-label={question.question}>
@@ -92,10 +117,10 @@ export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
         </section>
       ) : (
         <section className="open-questions-empty">
-          <p className="kicker">Im Moment nichts offen</p>
-          <h2>dérive lernt weiter aus deinem Lesefluss.</h2>
-          <p>Wenn ein Muster unklar wird oder eine Antwort deine Auswahl spürbar verbessern kann, erscheint hier eine neue Frage.</p>
-          <div><Link className="home-empty__primary" href="/ki">Zum KI-Kurator</Link><Link className="home-empty__secondary" href="/leseprofil">Leseprofil ansehen</Link></div>
+          <p className="kicker">{generating ? "KI prüft dein Profil" : "Im Moment nichts offen"}</p>
+          <h2>{generating ? "dérive sucht nach einer hilfreichen Rückfrage …" : "dérive lernt weiter aus deinem Lesefluss."}</h2>
+          <p>{generating ? "Dabei werden nur vorhandene Lese- und Rückmeldesignale verwendet." : "Wenn ein Muster unklar wird oder eine Antwort deine Auswahl spürbar verbessern kann, erscheint hier eine neue Frage."}</p>
+          <div>{!generating ? <button className="home-empty__primary" type="button" onClick={() => void generate()}>Neue Fragen prüfen</button> : null}<Link className="home-empty__secondary" href="/ki">Zum KI-Kurator</Link><Link className="home-empty__secondary" href="/leseprofil">Leseprofil ansehen</Link></div>
         </section>
       )}
       {notice ? <p className="open-questions-notice" role="status">{notice}</p> : null}

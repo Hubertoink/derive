@@ -28,6 +28,7 @@ from .discovery import (
     _candidate_text,
     backfill_source_memory,
     normalize_source_domain,
+    reading_memory,
     run_discovery,
     run_discovery_stream,
     serialize_source_memory,
@@ -45,6 +46,7 @@ from .auth import COOKIE_NAME, SESSION_TTL_DAYS, bootstrap_admin, create_invitat
 from .art import museum_name
 from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserArtwork, UserArtworkFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserReadingQuestion, UserSoulRevision, UserSourceMemory
 from .outbound_feed import build_rss_feed
+from .questions import QuestionGenerationError, generate_profile_questions
 from .secrets import decrypt_secret, encrypt_secret
 from .spotify import SpotifyError, spotify_is_configured, test_spotify_connection
 from .visuals import assign_article_visual
@@ -1739,6 +1741,88 @@ def _reading_question_candidates(
     return candidates[:3]
 
 
+def _dynamic_questions_ready(settings: AppSettings) -> bool:
+    return bool(
+        settings.ai_provider != "disabled"
+        and settings.ai_base_url
+        and settings.ai_model
+        and (settings.ai_provider != "openai" or settings.ai_api_key_encrypted)
+    )
+
+
+def _reading_question_signal(
+    session: Session,
+    user: User,
+    settings: AppSettings,
+    feedback_rows: list[tuple[UserArticleFeedback, Article]],
+) -> tuple[str, int]:
+    engaged = session.scalars(
+        select(UserArticle).where(
+            UserArticle.user_id == user.id,
+            or_(UserArticle.is_read.is_(True), UserArticle.is_saved.is_(True)),
+        ).order_by(UserArticle.article_id)
+    ).all()
+    podcast_feedback = session.scalars(
+        select(UserPodcastFeedback).where(UserPodcastFeedback.user_id == user.id)
+        .order_by(UserPodcastFeedback.id)
+    ).all()
+    artwork_feedback = session.scalars(
+        select(UserArtworkFeedback).where(UserArtworkFeedback.user_id == user.id)
+        .order_by(UserArtworkFeedback.id)
+    ).all()
+    signal = {
+        "soul_revision": settings.soul_revision,
+        "discovery_prompt": settings.discovery_prompt,
+        "article_feedback": [
+            [item.id, item.rating, item.reasons_csv, item.updated_at.isoformat() if item.updated_at else None]
+            for item, _article in feedback_rows
+        ],
+        "engaged_articles": [
+            [
+                item.article_id,
+                item.is_read,
+                item.is_saved,
+                item.read_at.isoformat() if item.read_at else None,
+                item.saved_at.isoformat() if item.saved_at else None,
+            ]
+            for item in engaged
+        ],
+        "podcast_feedback": [
+            [item.id, item.rating, item.reasons_csv, item.updated_at.isoformat() if item.updated_at else None]
+            for item in podcast_feedback
+        ],
+        "artwork_feedback": [
+            [item.id, item.rating, item.reasons_csv, item.updated_at.isoformat() if item.updated_at else None]
+            for item in artwork_feedback
+        ],
+    }
+    digest = hashlib.sha256(
+        json.dumps(signal, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    count = len(feedback_rows) + len(engaged) + len(podcast_feedback) + len(artwork_feedback)
+    return digest, count
+
+
+def _store_reading_questions(
+    session: Session,
+    user: User,
+    questions: list[dict],
+    signal_hash: str,
+    source: Literal["ai", "rule"],
+) -> None:
+    for index, question in enumerate(questions[:3], start=1):
+        session.add(UserReadingQuestion(
+            user_id=user.id,
+            key=f"{source}-{signal_hash}-{index}",
+            kind=question["kind"],
+            question=question["question"],
+            context=question["context"],
+            basis=question["basis"],
+            options_json=json.dumps(question["options"], ensure_ascii=False),
+            status="open",
+        ))
+
+
 def _serialize_reading_question(question: UserReadingQuestion | dict) -> dict:
     if isinstance(question, UserReadingQuestion):
         try:
@@ -1754,16 +1838,19 @@ def _serialize_reading_question(question: UserReadingQuestion | dict) -> dict:
             "options": options,
             "status": question.status,
             "answer": question.answer,
+            "source": "ai" if question.key.startswith("ai-") else "rule",
         }
-    return {**question, "status": "open"}
+    return {**question, "status": "open", "source": "rule"}
 
 
 def reading_questions_payload(
     session: Session,
     user: User,
     feedback_rows: list[tuple[UserArticleFeedback, Article]],
+    *,
+    dynamic_enabled: bool = False,
 ) -> list[dict]:
-    candidates = _reading_question_candidates(session, user, feedback_rows)
+    candidates = [] if dynamic_enabled else _reading_question_candidates(session, user, feedback_rows)
     stored = {
         question.key: question
         for question in session.scalars(
@@ -1886,7 +1973,9 @@ def reading_profile_payload(session: Session, user: User) -> dict:
         "podcast_feedback": podcast_feedback,
         "artwork_feedback": artwork_feedback,
         "insights": visible_insights,
-        "questions": reading_questions_payload(session, user, rows),
+        "questions": reading_questions_payload(
+            session, user, rows, dynamic_enabled=_dynamic_questions_ready(settings)
+        ),
     }
 
 
@@ -1951,6 +2040,97 @@ def save_article_feedback(article_id: int, request: ArticleFeedbackRequest, user
 @app.get("/api/v1/reading-profile")
 def get_reading_profile(user: CurrentUserDependency, session: SessionDependency) -> dict:
     return reading_profile_payload(session, user)
+
+
+@app.post("/api/v1/reading-questions/generate")
+async def generate_reading_questions(
+    user: CurrentUserDependency,
+    session: SessionDependency,
+) -> dict:
+    settings = get_or_create_settings(session, user)
+    if not _dynamic_questions_ready(settings):
+        profile = reading_profile_payload(session, user)
+        return {
+            "profile": profile,
+            "generated": 0,
+            "source": "rule" if any(item["status"] == "open" for item in profile["questions"]) else "none",
+            "message": "Die KI-Verbindung ist nicht vollständig eingerichtet; dérive nutzt nachvollziehbare Standardfragen.",
+        }
+
+    open_question = session.scalar(select(UserReadingQuestion.id).where(
+        UserReadingQuestion.user_id == user.id,
+        UserReadingQuestion.status == "open",
+    ).limit(1))
+    if open_question is not None:
+        return {
+            "profile": reading_profile_payload(session, user),
+            "generated": 0,
+            "source": "none",
+            "message": "Es sind bereits offene Fragen vorhanden.",
+        }
+
+    rows = session.execute(
+        select(UserArticleFeedback, Article)
+        .join(Article, Article.id == UserArticleFeedback.article_id)
+        .where(UserArticleFeedback.user_id == user.id)
+        .order_by(desc(UserArticleFeedback.updated_at), desc(UserArticleFeedback.id))
+    ).all()
+    signal_hash, signal_count = _reading_question_signal(session, user, settings, rows)
+    if signal_count < 2:
+        return {
+            "profile": reading_profile_payload(session, user),
+            "generated": 0,
+            "source": "none",
+            "message": "Noch nicht genug Lesesignale für eine hilfreiche Rückfrage.",
+        }
+    previous_generation = session.scalar(select(UserReadingQuestion.id).where(
+        UserReadingQuestion.user_id == user.id,
+        or_(
+            UserReadingQuestion.key.like(f"ai-{signal_hash}-%"),
+            UserReadingQuestion.key.like(f"rule-{signal_hash}-%"),
+        ),
+    ).limit(1))
+    if previous_generation is not None:
+        return {
+            "profile": reading_profile_payload(session, user),
+            "generated": 0,
+            "source": "none",
+            "message": "Zu diesen Lesesignalen wurde bereits gefragt. Neue Fragen entstehen mit neuen Rückmeldungen.",
+        }
+
+    seeds = _reading_question_candidates(session, user, rows)
+    source: Literal["ai", "rule"] = "ai"
+    try:
+        questions = await generate_profile_questions(
+            settings,
+            reading_memory(session, user, settings),
+            seeds,
+        )
+        message = "dérive hat aus deinen aktuellen Lesesignalen neue Fragen formuliert."
+    except QuestionGenerationError as error:
+        logger.warning("Dynamic reading questions failed for user %s: %s", user.id, error)
+        source = "rule"
+        questions = seeds or [{
+            "kind": "quality",
+            "question": "Was soll dérive aus deinem bisherigen Lesefluss stärker berücksichtigen?",
+            "context": "Deine bisherigen Signale lassen mehrere Deutungen zu. Ein kurzer Hinweis hilft bei der nächsten Auswahl.",
+            "basis": f"{signal_count} aktuelle Lese- und Rückmeldesignale",
+            "options": [
+                {"value": "topic", "label": "Die Themen"},
+                {"value": "depth", "label": "Die inhaltliche Tiefe"},
+                {"value": "perspective", "label": "Neue Perspektiven"},
+                {"value": "style", "label": "Stil und Erzählweise"},
+            ],
+        }]
+        message = "Die KI-Fragengenerierung war nicht erreichbar; dérive zeigt eine passende Standardfrage."
+    _store_reading_questions(session, user, questions, signal_hash, source)
+    session.commit()
+    return {
+        "profile": reading_profile_payload(session, user),
+        "generated": len(questions[:3]),
+        "source": source,
+        "message": message,
+    }
 
 
 @app.patch("/api/v1/reading-questions/{question_key}")
