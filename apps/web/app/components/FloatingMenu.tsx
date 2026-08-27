@@ -2,17 +2,28 @@
 
 import Link from "next/link";
 import { IconBookmark, IconMessageCircle, IconMoon, IconSearch, IconSparkles, IconSun, IconUser, IconX } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { getArticles } from "../api";
+import { Article } from "../types";
+import { SearchOverlay } from "./SearchOverlay";
 
 export function FloatingMenu() {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [articles, setArticles] = useState<Article[] | null>(null);
+  const [searchError, setSearchError] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const syncTheme = () => setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
     syncTheme();
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+        setIsOpen(false);
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     window.addEventListener("reado-theme-change", syncTheme);
@@ -22,6 +33,30 @@ export function FloatingMenu() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!searchOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [searchOpen]);
+
+  async function openSearch() {
+    setIsOpen(false);
+    setSearchOpen(true);
+    if (articles !== null) return;
+    setSearchError("");
+    try {
+      setArticles(await getArticles());
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Das Archiv konnte nicht geladen werden.");
+    }
+  }
+
+  function closeSearch() {
+    setSearchOpen(false);
+    window.setTimeout(() => searchButtonRef.current?.focus(), 0);
+  }
+
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
@@ -30,12 +65,12 @@ export function FloatingMenu() {
     window.dispatchEvent(new CustomEvent("reado-theme-change", { detail: next }));
   }
 
-  return (
+  return <>
     <nav className={`floating-menu${isOpen ? " is-open" : ""}`} aria-label="Schnellzugriffe">
       <div className="floating-menu__actions" id="floating-menu-actions">
-        <Link className="floating-menu__action" href="/suche" onClick={() => setIsOpen(false)} aria-label="Archiv durchsuchen" data-label="Suche">
+        <button ref={searchButtonRef} className="floating-menu__action" type="button" onClick={() => void openSearch()} aria-label="Archiv durchsuchen" data-label="Suche">
           <IconSearch aria-hidden="true" strokeWidth={1.7} />
-        </Link>
+        </button>
         <Link className="floating-menu__action" href="/ki" onClick={() => setIsOpen(false)} aria-label="KI-Kurator öffnen" data-label="KI-Kurator">
           <IconSparkles aria-hidden="true" strokeWidth={1.7} />
         </Link>
@@ -58,5 +93,13 @@ export function FloatingMenu() {
         <span className="floating-menu__plus" aria-hidden="true" />
       </button>
     </nav>
-  );
+    {searchOpen ? (
+      <SearchOverlay
+        articles={articles ?? []}
+        loading={articles === null && !searchError}
+        error={searchError}
+        onClose={closeSearch}
+      />
+    ) : null}
+  </>;
 }
