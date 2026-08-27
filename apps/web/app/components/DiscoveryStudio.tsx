@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { getDiscovery, runDiscovery, saveDiscoveryProfile, updateDiscoverySource } from "../api";
 import { Article, DiscoveryChatStatus, DiscoveryProfile, DiscoveryStatus } from "../types";
@@ -50,10 +50,18 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
   }));
   const [busy, setBusy] = useState<"save" | "run" | null>(null);
   const [sourceBusy, setSourceBusy] = useState<string | null>(null);
+  const [sourcePage, setSourcePage] = useState(0);
   const [notice, setNotice] = useState("");
   const [sourceDraft, setSourceDraft] = useState("");
   const [progress, setProgress] = useState<{ phase: "articles" | "podcasts"; batch: number; batches: number; found: number; podcasts: number; tokens: number } | null>(null);
   const deprioritizedSources = profile.deprioritized_sources ?? [];
+  const learnedSources = useMemo(
+    () => status.sources.filter((source) => source.origin === "learned" || source.observed_count > 0),
+    [status.sources],
+  );
+  const sourcePageCount = Math.max(1, Math.ceil(learnedSources.length / 10));
+  const currentSourcePage = Math.min(sourcePage, sourcePageCount - 1);
+  const visibleSources = learnedSources.slice(currentSourcePage * 10, (currentSourcePage + 1) * 10);
 
   async function addSource() {
     const source = sourceDraft.trim().replace(/,$/, "").trim();
@@ -264,17 +272,17 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
             </div>
           </div>
         </section>
-        {status.sources?.some((source) => source.origin === "learned" || source.observed_count > 0) ? (
+        {learnedSources.length ? (
           <section className="source-memory" aria-labelledby="source-memory-title">
             <div className="source-preferences__heading">
               <div>
                 <span id="source-memory-title">Automatisch entdeckte Quellen</span>
                 <p>dérive merkt sich passende Publikationen, rotiert sie und lässt bei jedem Lauf Raum für neue Quellen.</p>
               </div>
-              <span className="source-preferences__count">{status.sources.filter((source) => source.origin === "learned" || source.observed_count > 0).length}</span>
+              <span className="source-preferences__count">{learnedSources.length}</span>
             </div>
             <div className="source-memory-list">
-              {status.sources.filter((source) => source.origin === "learned" || source.observed_count > 0).map((source) => (
+              {visibleSources.map((source) => (
                 <article className={`source-memory-card source-memory-card--${source.status}`} key={source.domain}>
                   <div>
                     <strong>{source.name}</strong>
@@ -288,6 +296,13 @@ export function DiscoveryStudio({ initial, initialChat, reflectionArticles }: { 
                 </article>
               ))}
             </div>
+            {sourcePageCount > 1 ? (
+              <nav className="source-memory-pagination" aria-label="Entdeckte Quellen Seiten">
+                <button type="button" onClick={() => setSourcePage(Math.max(0, currentSourcePage - 1))} disabled={currentSourcePage === 0}>Zurück</button>
+                <span>Seite {currentSourcePage + 1} von {sourcePageCount}</span>
+                <button type="button" onClick={() => setSourcePage(Math.min(sourcePageCount - 1, currentSourcePage + 1))} disabled={currentSourcePage === sourcePageCount - 1}>Weiter</button>
+              </nav>
+            ) : null}
           </section>
         ) : null}
       </section>

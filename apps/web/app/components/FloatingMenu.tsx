@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { IconBookmark, IconMessageCircle, IconMoon, IconSparkles, IconSun, IconUser, IconX } from "@tabler/icons-react";
+import { IconBookmark, IconMessageCircle, IconMoon, IconSearch, IconSparkles, IconSun, IconUser, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 export function FloatingMenu() {
@@ -33,6 +33,9 @@ export function FloatingMenu() {
   return (
     <nav className={`floating-menu${isOpen ? " is-open" : ""}`} aria-label="Schnellzugriffe">
       <div className="floating-menu__actions" id="floating-menu-actions">
+        <Link className="floating-menu__action" href="/suche" onClick={() => setIsOpen(false)} aria-label="Archiv durchsuchen" data-label="Suche">
+          <IconSearch aria-hidden="true" strokeWidth={1.7} />
+        </Link>
         <Link className="floating-menu__action" href="/ki" onClick={() => setIsOpen(false)} aria-label="KI-Kurator öffnen" data-label="KI-Kurator">
           <IconSparkles aria-hidden="true" strokeWidth={1.7} />
         </Link>

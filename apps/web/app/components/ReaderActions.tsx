@@ -22,6 +22,7 @@ export function ReaderActions({
     const previousRead = isRead;
     if (update.is_saved !== undefined) setIsSaved(update.is_saved);
     if (update.is_read) setIsRead(true);
+    setNotice(update.is_read ? "Wird als gelesen markiert …" : "Wird gespeichert …");
     setBusy(true);
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/v1/articles/${articleId}`, {
@@ -44,7 +45,10 @@ export function ReaderActions({
 
   useEffect(() => {
     const markRead = (event: Event) => {
-      if ((event as CustomEvent<number>).detail === articleId) setIsRead(true);
+      if ((event as CustomEvent<number>).detail === articleId) {
+        setIsRead(true);
+        setNotice("Als gelesen markiert.");
+      }
     };
     window.addEventListener("reado:article-read", markRead);
     return () => window.removeEventListener("reado:article-read", markRead);
@@ -58,9 +62,7 @@ export function ReaderActions({
       <button type="button" onClick={() => updateState({ is_read: true })} disabled={isRead || busy}>
         {isRead ? "Als gelesen markiert" : "Als gelesen markieren"}
       </button>
-      <span className="sr-only" role="status">
-        {notice}
-      </span>
+      {notice ? <span className="reader-actions__notice" role="status" aria-live="polite">{notice}</span> : null}
     </div>
   );
 }
