@@ -3,12 +3,13 @@ import Link from "next/link";
 import { BrandLogo } from "./BrandLogo";
 import { FloatingMenu } from "./FloatingMenu";
 
-export type SiteSection = "home" | "archive" | "profile" | "curator" | "settings" | null;
+export type SiteSection = "home" | "archive" | "profile" | "questions" | "curator" | "settings" | null;
 
 const navigation = [
   { key: "home", href: "/", label: "Für dich" },
   { key: "archive", href: "/archiv", label: "Archiv" },
   { key: "profile", href: "/leseprofil", label: "Leseprofil" },
+  { key: "questions", href: "/fragen", label: "Offene Fragen" },
   { key: "curator", href: "/ki", label: "KI-Kurator" },
   { key: "settings", href: "/einstellungen", label: "Einstellungen" },
 ] as const;

@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime, parsedate_to_datetime
 import hashlib
+import json
 import logging
 import os
 import re
@@ -17,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response as FastAP
 from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl
-from sqlalchemy import delete, desc, func, inspect, select, text
+from sqlalchemy import delete, desc, func, inspect, or_, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from .database import Base, SessionLocal, engine, schema_initialization_lock
@@ -42,7 +43,7 @@ from .feeds import (
 )
 from .auth import COOKIE_NAME, SESSION_TTL_DAYS, bootstrap_admin, create_invitation, create_session, current_admin, current_user, password_hasher, redeem_invitation, revoke_session, session_token_from_request, validate_account_fields, verify_password
 from .art import museum_name
-from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserArtwork, UserArtworkFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserSoulRevision, UserSourceMemory
+from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, DiscoveryChatMessage, DiscoveryRun, Feed, PodcastEpisode, ReadingInsight, Source, User, UserArticle, UserArticleFeedback, UserArtwork, UserArtworkFeedback, UserFeed, UserInvitation, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserReadingQuestion, UserSoulRevision, UserSourceMemory
 from .outbound_feed import build_rss_feed
 from .secrets import decrypt_secret, encrypt_secret
 from .spotify import SpotifyError, spotify_is_configured, test_spotify_connection
@@ -154,6 +155,12 @@ class SoulUpdateRequest(BaseModel):
 
 class InsightStatusRequest(BaseModel):
     status: Literal["confirmed", "dismissed"]
+
+
+class ReadingQuestionRequest(BaseModel):
+    status: Literal["answered", "skipped"]
+    option: str | None = Field(default=None, max_length=120)
+    answer: str | None = Field(default=None, max_length=2000)
 
 
 class FreshRSSSyncRequest(BaseModel):
@@ -1663,6 +1670,120 @@ def serialize_artwork_feedback(feedback: UserArtworkFeedback, artwork: Artwork) 
     }
 
 
+def _reading_question_candidates(
+    session: Session,
+    user: User,
+    feedback_rows: list[tuple[UserArticleFeedback, Article]],
+) -> list[dict]:
+    """Return a small, deterministic set of useful preference questions.
+
+    The question wording can evolve later, but the trigger stays inspectable:
+    questions only appear when existing signals are ambiguous enough to affect
+    recommendations.
+    """
+    positive_rows = [(feedback, article) for feedback, article in feedback_rows if feedback.rating in {"great", "yes"}]
+    engaged_articles = session.scalars(
+        select(Article).join(UserArticle, UserArticle.article_id == Article.id).where(
+            UserArticle.user_id == user.id,
+            or_(UserArticle.is_read.is_(True), UserArticle.is_saved.is_(True)),
+        ).order_by(desc(Article.published_at)).limit(60)
+    ).all()
+    candidates: list[dict] = []
+
+    long_count = sum(1 for article in engaged_articles if article.reading_minutes >= 15)
+    short_count = sum(1 for article in engaged_articles if article.reading_minutes < 8)
+    if len(engaged_articles) >= 4 and long_count and short_count:
+        candidates.append({
+            "key": "reading-length-v1",
+            "kind": "format",
+            "question": "Was soll bei deiner nächsten Auswahl stärker zählen?",
+            "context": "Du liest sowohl kurze als auch ausführliche Texte. dérive möchte unterscheiden, ob die Länge selbst oder vor allem das Thema entscheidend ist.",
+            "basis": f"{long_count} ausführliche und {short_count} kurze gelesene oder gemerkte Texte",
+            "options": [
+                {"value": "long", "label": "Ausführliche Texte"},
+                {"value": "short", "label": "Kurze Texte"},
+                {"value": "mixed", "label": "Eine Mischung"},
+                {"value": "topic", "label": "Kommt aufs Thema an"},
+            ],
+        })
+
+    if len(positive_rows) >= 2 and not any(feedback.reasons_csv.strip() for feedback, _ in positive_rows):
+        candidates.append({
+            "key": "feedback-dimension-v1",
+            "kind": "quality",
+            "question": "Was macht einen Text für dich besonders lesenswert?",
+            "context": "Du hast zuletzt mehrere Texte positiv bewertet. Eine kurze Einordnung hilft dérive, ähnliche Qualitäten gezielter zu finden.",
+            "basis": f"{len(positive_rows)} positive Artikelrückmeldungen ohne Qualitätsgrund",
+            "options": [
+                {"value": "topic", "label": "Das Thema"},
+                {"value": "perspective", "label": "Die Perspektive"},
+                {"value": "depth", "label": "Die Tiefe"},
+                {"value": "style", "label": "Die Erzählweise"},
+            ],
+        })
+
+    if len(positive_rows) >= 3 or len(engaged_articles) >= 6:
+        candidates.append({
+            "key": "exploration-v1",
+            "kind": "discovery",
+            "question": "Wie viel Raum darf dérive für Überraschungen lassen?",
+            "context": "Dein Profil wird klarer. Jetzt kann dérive besser zwischen vertrauten Treffern und bewussten Entdeckungen abwägen.",
+            "basis": f"{len(positive_rows)} positive Rückmeldungen und {len(engaged_articles)} Lese- oder Merksignale",
+            "options": [
+                {"value": "focused", "label": "Eng am Profil bleiben"},
+                {"value": "some_surprise", "label": "Gelegentlich überraschen"},
+                {"value": "open", "label": "Bewusst neue Felder öffnen"},
+            ],
+        })
+
+    return candidates[:3]
+
+
+def _serialize_reading_question(question: UserReadingQuestion | dict) -> dict:
+    if isinstance(question, UserReadingQuestion):
+        try:
+            options = json.loads(question.options_json or "[]")
+        except json.JSONDecodeError:
+            options = []
+        return {
+            "key": question.key,
+            "kind": question.kind,
+            "question": question.question,
+            "context": question.context,
+            "basis": question.basis,
+            "options": options,
+            "status": question.status,
+            "answer": question.answer,
+        }
+    return {**question, "status": "open"}
+
+
+def reading_questions_payload(
+    session: Session,
+    user: User,
+    feedback_rows: list[tuple[UserArticleFeedback, Article]],
+) -> list[dict]:
+    candidates = _reading_question_candidates(session, user, feedback_rows)
+    stored = {
+        question.key: question
+        for question in session.scalars(
+            select(UserReadingQuestion).where(UserReadingQuestion.user_id == user.id)
+        ).all()
+    }
+    stored_visible = [
+        _serialize_reading_question(question)
+        for question in stored.values()
+        if question.status in {"open", "answered"}
+    ]
+    visible_keys = {question["key"] for question in stored_visible}
+    open_questions = [question for question in stored_visible if question["status"] == "open"]
+    answered_questions = [question for question in stored_visible if question["status"] == "answered"]
+    for candidate in candidates:
+        if candidate["key"] not in stored and candidate["key"] not in visible_keys:
+            open_questions.append(_serialize_reading_question(candidate))
+    return open_questions[:3] + answered_questions
+
+
 def reading_profile_payload(session: Session, user: User) -> dict:
     settings = get_or_create_settings(session, user)
     rows = session.execute(
@@ -1765,6 +1886,7 @@ def reading_profile_payload(session: Session, user: User) -> dict:
         "podcast_feedback": podcast_feedback,
         "artwork_feedback": artwork_feedback,
         "insights": visible_insights,
+        "questions": reading_questions_payload(session, user, rows),
     }
 
 
@@ -1828,6 +1950,56 @@ def save_article_feedback(article_id: int, request: ArticleFeedbackRequest, user
 
 @app.get("/api/v1/reading-profile")
 def get_reading_profile(user: CurrentUserDependency, session: SessionDependency) -> dict:
+    return reading_profile_payload(session, user)
+
+
+@app.patch("/api/v1/reading-questions/{question_key}")
+def update_reading_question(
+    question_key: str,
+    request: ReadingQuestionRequest,
+    user: CurrentUserDependency,
+    session: SessionDependency,
+) -> dict:
+    profile = reading_profile_payload(session, user)
+    candidate = next((item for item in profile["questions"] if item["key"] == question_key), None)
+    question = session.scalar(select(UserReadingQuestion).where(
+        UserReadingQuestion.user_id == user.id,
+        UserReadingQuestion.key == question_key,
+    ))
+    if candidate is None and (question is None or question.status != "open"):
+        raise HTTPException(status_code=404, detail="Reading question not found.")
+    if question is None:
+        question = UserReadingQuestion(
+            user_id=user.id,
+            key=question_key,
+            kind=candidate["kind"],
+            question=candidate["question"],
+            context=candidate["context"],
+            basis=candidate["basis"],
+            options_json=json.dumps(candidate["options"], ensure_ascii=False),
+        )
+        session.add(question)
+
+    if request.status == "answered":
+        option_label = None
+        if request.option:
+            selected = next((item for item in candidate["options"] if item["value"] == request.option), None) if candidate else None
+            if selected is None:
+                raise HTTPException(status_code=422, detail="Diese Antwortoption ist nicht gültig.")
+            question.answer_value = selected["value"]
+            option_label = selected["label"]
+        answer_text = " ".join((request.answer or "").strip().split())
+        if not option_label and not answer_text:
+            raise HTTPException(status_code=422, detail="Bitte wähle eine Antwort oder schreibe einen kurzen Gedanken dazu.")
+        question.answer = f"{option_label}: {answer_text}" if option_label and answer_text else option_label or answer_text
+        question.status = "answered"
+        question.answered_at = datetime.now(UTC)
+        question.skipped_at = None
+    else:
+        question.status = "skipped"
+        question.skipped_at = datetime.now(UTC)
+        question.answered_at = None
+    session.commit()
     return reading_profile_payload(session, user)
 
 

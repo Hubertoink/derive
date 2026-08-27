@@ -278,6 +278,17 @@ export type SoulProfile = {
   revisions: { revision: number; markdown: string; created_at: string }[];
 };
 
+export type ReadingQuestion = {
+  key: string;
+  kind: "format" | "quality" | "discovery" | string;
+  question: string;
+  context: string;
+  basis: string;
+  options: { value: string; label: string }[];
+  status: "open" | "answered" | "skipped" | string;
+  answer?: string | null;
+};
+
 export type ReadingProfile = {
   stats: { read_count: number; saved_count: number; feedback_count: number };
   soul: SoulProfile;
@@ -285,4 +296,5 @@ export type ReadingProfile = {
   podcast_feedback: PreferenceFeedback[];
   artwork_feedback: PreferenceFeedback[];
   insights: { key: string; text: string; basis: string; confidence: "low" | "medium" | "high"; status: "suggested" | "confirmed" }[];
+  questions: ReadingQuestion[];
 };

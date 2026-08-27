@@ -116,6 +116,19 @@ export async function updateReadingInsight(key: string, status: "confirmed" | "d
   return response.json() as Promise<ReadingProfile>;
 }
 
+export async function answerReadingQuestion(
+  key: string,
+  response: { status: "answered" | "skipped"; option?: string; answer?: string },
+): Promise<ReadingProfile> {
+  const result = await browserFetch(`/api/v1/reading-questions/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(response),
+  });
+  if (!result.ok) return apiError(result);
+  return result.json() as Promise<ReadingProfile>;
+}
+
 export async function saveSoul(markdown: string, artEnabled: boolean): Promise<ReadingProfile> {
   const response = await browserFetch("/api/v1/reading-profile/soul", {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ markdown, art_enabled: artEnabled }),

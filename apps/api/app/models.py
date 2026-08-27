@@ -112,6 +112,27 @@ class UserReadingInsight(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class UserReadingQuestion(Base):
+    __tablename__ = "user_reading_questions"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_reading_question"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(255), index=True)
+    kind: Mapped[str] = mapped_column(String(32), default="preference")
+    question: Mapped[str] = mapped_column(Text)
+    context: Mapped[str] = mapped_column(Text, default="")
+    basis: Mapped[str] = mapped_column(Text, default="")
+    options_json: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(24), default="open", index=True)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_value: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    skipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class UserPodcastFeedback(Base):
     __tablename__ = "user_podcast_feedback"
     __table_args__ = (UniqueConstraint("user_id", "podcast_episode_id", name="uq_user_podcast_feedback"),)

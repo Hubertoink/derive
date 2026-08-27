@@ -18,6 +18,7 @@ from app.models import (
     UserArticle,
     UserArticleFeedback,
     UserReadingInsight,
+    UserReadingQuestion,
     UserSourceMemory,
 )
 from app.publisher_access import import_subscriber_article, update_rule
@@ -154,6 +155,15 @@ def test_reader_memory_separates_declared_explicit_saved_and_read_signals():
                 text="Ich bevorzuge argumentierende Langformen.",
                 basis="Vom Nutzer bestaetigt",
             ),
+            UserReadingQuestion(
+                user_id=user.id,
+                key="reading-length-v1",
+                kind="format",
+                question="Was soll stärker zählen?",
+                answer="Ausführliche Texte",
+                answer_value="long",
+                status="answered",
+            ),
         ])
         session.commit()
 
@@ -166,6 +176,8 @@ def test_reader_memory_separates_declared_explicit_saved_and_read_signals():
         assert "Gemerkte Texte (mittleres positives Signal)" in memory
         assert "schwaches Nutzungssignal" in memory
         assert "nicht als Gefallen interpretieren" in memory
+        assert "beantwortete Profilfragen" in memory
+        assert "Ausführliche Texte" in memory
 
 
 def test_imports_paywalled_recommendation_as_link_metadata(monkeypatch):

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from .feeds import plain_text, validate_public_url
 from .art import refresh_artwork_impression
-from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, PodcastEpisode, Source, User, UserArticle, UserArticleFeedback, UserArtworkFeedback, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserSourceMemory
+from .models import AppSettings, Article, ArticleFeedback, Artwork, Author, PodcastEpisode, Source, User, UserArticle, UserArticleFeedback, UserArtworkFeedback, UserPodcastEpisode, UserPodcastFeedback, UserReadingInsight, UserReadingQuestion, UserSourceMemory
 from .secrets import decrypt_secret
 from .spotify import SpotifyError, search_spotify_episodes, spotify_is_configured
 from .visuals import refresh_hero_visual
@@ -355,8 +355,14 @@ def reading_memory(session: Session, user: User, settings: AppSettings | None = 
             UserReadingInsight.status == "confirmed",
         ).order_by(desc(UserReadingInsight.updated_at)).limit(12)
     ).all()
+    answered_questions = session.scalars(
+        select(UserReadingQuestion).where(
+            UserReadingQuestion.user_id == user.id,
+            UserReadingQuestion.status == "answered",
+        ).order_by(desc(UserReadingQuestion.updated_at)).limit(12)
+    ).all()
     soul = settings.soul_markdown.strip() if settings else ""
-    if not saved_articles and not read_only_articles and not feedback_rows and not podcast_feedback_rows and not artwork_feedback_rows and not confirmed_insights and not recent_ai_titles and not soul:
+    if not saved_articles and not read_only_articles and not feedback_rows and not podcast_feedback_rows and not artwork_feedback_rows and not confirmed_insights and not answered_questions and not recent_ai_titles and not soul:
         return "Noch keine lokalen Lesesignale vorhanden."
 
     sections: list[str] = []
@@ -369,6 +375,14 @@ def reading_memory(session: Session, user: User, settings: AppSettings | None = 
         statements = " | ".join(insight.text for insight in confirmed_insights if insight.text)
         if statements:
             sections.append("Vom Nutzer bestätigte Langzeiterinnerungen: " + statements[:3000])
+    if answered_questions:
+        answers = " | ".join(
+            f"{question.question} → {question.answer}"
+            for question in answered_questions
+            if question.answer
+        )
+        if answers:
+            sections.append("Vom Nutzer beantwortete Profilfragen (explizites Signal): " + answers[:3000])
 
     if feedback_rows:
         positive = [(feedback, article) for feedback, article in feedback_rows if feedback.rating in {"great", "yes"}]

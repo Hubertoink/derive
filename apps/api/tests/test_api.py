@@ -323,6 +323,31 @@ def test_article_feedback_reasons_and_confirmed_memory_are_transparent(isolated_
     assert confirmed_item["basis"]
 
 
+def test_open_reading_questions_can_be_answered_and_remain_transparent(isolated_client):
+    articles = isolated_client.get("/api/v1/articles").json()[:2]
+    for article in articles:
+        response = isolated_client.put(
+            f"/api/v1/articles/{article['id']}/feedback",
+            json={"rating": "great"},
+        )
+        assert response.status_code == 200
+
+    profile = isolated_client.get("/api/v1/reading-profile").json()
+    question = next(item for item in profile["questions"] if item["key"] == "feedback-dimension-v1")
+    answered = isolated_client.patch(
+        f"/api/v1/reading-questions/{question['key']}",
+        json={"status": "answered", "option": "depth", "answer": "Ich suche nach sorgfältig entwickelten Argumenten."},
+    )
+
+    assert answered.status_code == 200
+    saved_question = next(item for item in answered.json()["questions"] if item["key"] == question["key"])
+    assert saved_question["status"] == "answered"
+    assert "Die Tiefe" in saved_question["answer"]
+    assert "sorgfältig entwickelten Argumenten" in saved_question["answer"]
+    refreshed = isolated_client.get("/api/v1/reading-profile").json()
+    assert next(item for item in refreshed["questions"] if item["key"] == question["key"])["status"] == "answered"
+
+
 def test_podcast_and_artwork_feedback_use_the_same_explicit_vocabulary(isolated_client):
     podcast = isolated_client.get("/api/v1/podcasts").json()[0]
     home = isolated_client.get("/api/v1/home").json()
