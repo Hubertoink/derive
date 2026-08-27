@@ -50,6 +50,10 @@ export default async function HomePage() {
   const setup = await getSetup();
   if (!setup.setup_completed) return <SetupWizard initial={setup} onboarding />;
 
+  const welcomeTitle = setup.display_name.trim()
+    ? `${setup.display_name.trim()} Lies, was nachklingt.`
+    : "Lies, was nachklingt.";
+
   const home = await getHome();
   const lead = home.for_you[0] ?? home.today[0];
   if (!lead) {
@@ -89,7 +93,7 @@ export default async function HomePage() {
       <SiteHeader active="home" dateLabel={todayLabel} />
 
       <section className="home-intro" aria-labelledby="welcome-title">
-        <h1 id="welcome-title">Lies, was nachklingt.</h1>
+        <h1 id="welcome-title">{welcomeTitle}</h1>
         <p>Eine persönliche Auswahl für langsame Gedanken und gute Umwege.</p>
       </section>
 
