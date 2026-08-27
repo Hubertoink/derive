@@ -203,7 +203,11 @@ def sync_manual_source_memory(session: Session, user: User, settings: AppSetting
         memory.status = "deprioritized"
         memory.manual_override = True
     for memory in rows:
-        if memory.manual_override and memory.domain not in manual_keys:
+        # A learned source can have an explicit status chosen in the source
+        # memory UI. Keep that choice across worker/app restarts. Only remove
+        # the legacy manual deprioritization when its input field no longer
+        # contains a source created as a manual entry.
+        if memory.origin == "manual" and memory.manual_override and memory.domain not in manual_keys:
             memory.manual_override = False
             if memory.status == "deprioritized":
                 memory.status = "active"

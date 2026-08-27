@@ -24,7 +24,7 @@ from app.models import (
     UserPodcastEpisode,
     UserSourceMemory,
 )
-from app.discovery import DiscoveryRunResult
+from app.discovery import DiscoveryRunResult, sync_manual_source_memory
 from app.seed import seed_demo_content
 
 
@@ -220,6 +220,34 @@ def test_discovery_profile_can_be_configured_for_longform(isolated_client):
     }
     assert response.json()["sources"][0]["domain"] == "zeit.de"
     assert response.json()["sources"][0]["status"] == "deprioritized"
+
+
+def test_learned_source_status_survives_manual_source_sync():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        user = User(username="source-reader", email="source@example.org", password_hash="unused")
+        session.add(user)
+        session.flush()
+        settings = AppSettings(user_id=user.id, discovery_deprioritized_sources_csv="")
+        memory = UserSourceMemory(
+            user_id=user.id,
+            domain="theatlantic.com",
+            display_name="The Atlantic",
+            origin="learned",
+            observed_count=1,
+            status="deprioritized",
+            manual_override=True,
+        )
+        session.add_all([user, settings, memory])
+        session.commit()
+
+        sync_manual_source_memory(session, user, settings)
+        session.commit()
+        session.refresh(memory)
+
+        assert memory.status == "deprioritized"
+        assert memory.manual_override is True
 
 
 def test_discovery_explains_when_web_search_is_not_configured(isolated_client):

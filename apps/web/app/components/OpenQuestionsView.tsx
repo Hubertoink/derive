@@ -79,7 +79,6 @@ export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
     <div className="open-questions-page">
       <section className="reading-profile-intro open-questions-intro">
         <div>
-          <p className="kicker">Gemeinsam genauer werden</p>
           <h1>Offene Fragen.</h1>
         </div>
         <p>dérive fragt nur nach, wenn deine Antwort die nächsten Empfehlungen wirklich genauer machen kann. Du entscheidest, was bleibt.</p>
@@ -88,7 +87,7 @@ export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
       {questions.length ? (
         <section className="open-questions-list" aria-labelledby="open-questions-title">
           <div className="section-heading">
-            <div><p className="kicker">Für dein Leseprofil</p><h2 id="open-questions-title">Ein paar Gedanken von dir.</h2></div>
+            <div><h2 id="open-questions-title">Ein paar Gedanken von dir.</h2></div>
             <p>Antworten werden als explizite Präferenzen gespeichert. Deine kuratorische Haltung bleibt unverändert.</p>
           </div>
           {questions.map((question) => {
@@ -117,7 +116,6 @@ export function OpenQuestionsView({ initial }: { initial: ReadingQuestion[] }) {
         </section>
       ) : (
         <section className="open-questions-empty">
-          <p className="kicker">{generating ? "KI prüft dein Profil" : "Im Moment nichts offen"}</p>
           <h2>{generating ? "dérive sucht nach einer hilfreichen Rückfrage …" : "dérive lernt weiter aus deinem Lesefluss."}</h2>
           <p>{generating ? "Dabei werden nur vorhandene Lese- und Rückmeldesignale verwendet." : "Wenn ein Muster unklar wird oder eine Antwort deine Auswahl spürbar verbessern kann, erscheint hier eine neue Frage."}</p>
           <div>{!generating ? <button className="home-empty__primary" type="button" onClick={() => void generate()}>Neue Fragen prüfen</button> : null}<Link className="home-empty__secondary" href="/ki">Zum KI-Kurator</Link><Link className="home-empty__secondary" href="/leseprofil">Leseprofil ansehen</Link></div>

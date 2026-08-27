@@ -501,7 +501,7 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
 
 /* Active preference questions */
 .questions-shell { padding-bottom: 110px; }
-.open-questions-intro { min-height: 360px; }
+.reading-profile-intro.open-questions-intro { min-height: 0; padding: 48px 0 34px; }
 .open-questions-intro h1 { max-width: 760px; }
 .open-questions-list { margin-top: 72px; }
 .open-question-card { display: grid; grid-template-columns: minmax(150px, .3fr) minmax(0, .7fr); column-gap: 34px; padding: 30px 0; border-bottom: 1px solid var(--rule); }
