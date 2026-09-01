@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.main import app, get_session, migrate_legacy_data, stream_with_keepalives
+from app.main import app, get_session, migrate_legacy_data, select_home_recommendations, stream_with_keepalives
 from app.auth import current_user
 from app.models import (
     Article,
@@ -36,6 +36,23 @@ def test_home_exposes_article_first_curation(isolated_client):
     assert payload["for_you"]
     assert payload["for_you"][0]["reason"]
     assert "content_html" not in payload["for_you"][0]
+
+
+def test_home_recommendations_open_new_topic_rooms_before_falling_back():
+    selection = [
+        Article(id=1, topics_csv="Künstliche Intelligenz,Technologie"),
+        Article(id=2, topics_csv="Technologie,Arbeit"),
+    ]
+    ranked = selection + [
+        Article(id=3, topics_csv="Künstliche Intelligenz"),
+        Article(id=4, topics_csv="Gesellschaft"),
+        Article(id=5, topics_csv="Philosophie"),
+        Article(id=6, topics_csv="Gesellschaft"),
+    ]
+
+    recommendations = select_home_recommendations(ranked, selection, limit=4)
+
+    assert [article.id for article in recommendations] == [4, 5, 3, 6]
 
 
 def test_article_state_can_be_saved_and_read(isolated_client):

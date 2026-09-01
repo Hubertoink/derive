@@ -680,6 +680,49 @@ def home_rank(article: Article, settings: AppSettings) -> tuple[int, int, float,
     )
 
 
+def home_article_topics(article: Article) -> set[str]:
+    return {topic.casefold() for topic in _list(article.topics_csv)}
+
+
+def select_home_recommendations(
+    ranked: list[Article], selection: list[Article], limit: int = 6
+) -> list[Article]:
+    """Prefer articles that open up a new topic room, then fill from the ranking.
+
+    The first four ranked articles make up the hero and the weekly selection.
+    Recommendations should be a small sideways step from those articles when
+    the user's reading room contains suitable material. With sparse content,
+    the regular ranking remains the fallback so the section does not disappear.
+    """
+    selected_ids = {article.id for article in selection}
+    candidates = [article for article in ranked if article.id not in selected_ids]
+    represented_topics = {
+        topic
+        for article in selection
+        for topic in home_article_topics(article)
+    }
+    recommendations: list[Article] = []
+    remaining = candidates.copy()
+
+    while remaining and len(recommendations) < limit:
+        next_article = next(
+            (
+                article
+                for article in remaining
+                if home_article_topics(article) - represented_topics
+            ),
+            None,
+        )
+        if next_article is None:
+            break
+        recommendations.append(next_article)
+        remaining.remove(next_article)
+        represented_topics.update(home_article_topics(next_article))
+
+    recommendations.extend(remaining[: max(0, limit - len(recommendations))])
+    return recommendations
+
+
 def is_home_eligible(article: Article) -> bool:
     # Removing a feed intentionally keeps its articles in the archive. Those
     # orphaned feed imports should no longer compete with active curation on
@@ -1463,7 +1506,7 @@ def home(user: CurrentUserDependency, session: SessionDependency) -> dict:
     # suggestions without falling back to archived RSS imports.
     for_you = ranked[:4]
     today = unread[:5]
-    discover = [article for article in ranked if article not in for_you][:6]
+    discover = select_home_recommendations(ranked, for_you)
     authors = {}
     for article in eligible_articles:
         authors.setdefault(article.author.name, {"name": article.author.name, "count": 0})
