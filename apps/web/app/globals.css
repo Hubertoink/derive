@@ -54,11 +54,16 @@ html[data-theme="dark"] .brand-logo__on-dark { display: block; }
 .account-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, .42fr); gap: 35px; align-items: end; padding: 75px 0 45px; border-bottom: 2px solid var(--ink); }.account-intro .kicker { grid-column: 1 / -1; }.account-intro h1 { margin: 0; font-family: var(--serif); font-size: clamp(3.5rem, 7vw, 6.8rem); font-weight: 400; letter-spacing: -.07em; line-height: .84; }.account-intro > p:last-child { margin: 0; color: var(--ink-soft); font-family: var(--serif); font-size: 1.08rem; line-height: 1.45; }
 .account-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; margin: 52px 0 100px; }.account-panel__identity h2, .account-admin h3 { margin: 0; font-family: var(--serif); font-size: 2.2rem; font-weight: 400; }.account-panel__identity > p:last-child, .account-admin > p { color: var(--slate-grey); font-family: var(--serif); line-height: 1.5; }.account-panel__logout, .account-admin button { cursor: pointer; align-self: start; border: 1px solid var(--slate-grey); background: transparent; color: var(--ink); padding: 10px 13px; font-size: .72rem; font-weight: 700; }.account-panel__logout:hover, .account-admin button:hover { background: var(--frosted-mint); }.account-admin { grid-column: 1 / -1; max-width: 760px; padding-top: 32px; border-top: 1px solid var(--rule); }.account-admin form { display: flex; gap: 9px; margin-top: 18px; }.account-admin input { min-width: 0; flex: 1; border: 1px solid var(--slate-grey); background: var(--porcelain); color: var(--ink); padding: 10px; font: inherit; }.account-invite { display: grid; gap: 6px; margin-top: 20px; }.account-invite span { color: var(--slate-grey); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }.account-users { list-style: none; margin: 35px 0 0; padding: 0; border-top: 1px solid var(--rule); }.account-users li { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--rule); font-size: .82rem; }.account-users span, .account-users small, .account-notice { color: var(--slate-grey); }
 .login-error { margin: 0; padding-left: 10px; border-left: 3px solid #b2524a; color: #9b453f; font-size: .82rem; }
-.site-header nav { display: flex; gap: 25px; align-items: stretch; font-size: .78rem; }
+.site-header nav { min-width: 0; flex: 1; font-size: .78rem; }
+.site-header__nav, .site-header__subnav { list-style: none; margin: 0; padding: 0; }
+.site-header__nav { display: flex; gap: 25px; align-items: stretch; }
+.site-header__item { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; }
 .site-header nav a { position: relative; display: inline-flex; align-items: center; padding: 8px 0 11px; color: var(--slate-grey); text-decoration: none; transition: color 160ms ease; }
 .site-header nav a::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--slate-grey); transform: scaleX(0); transform-origin: left; transition: transform 180ms ease, background 180ms ease; }
 .site-header nav a.is-active { color: var(--ink); }
 .site-header nav a.is-active::after { background: var(--tea-green); transform: scaleX(1); }
+.site-header__subnav { display: flex; gap: 14px; margin-top: -4px; padding-left: 12px; border-left: 1px solid var(--rule); }
+.site-header__subnav a { padding: 3px 0 7px; font-size: .68rem; }
 @media (hover: hover) and (pointer: fine) {
   .site-header nav a:hover { color: var(--ink); }
   .site-header nav:has(a:hover) a.is-active::after { transform: scaleX(0); }
@@ -433,7 +438,7 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
 .reader__original-cta a { display: inline-block; background: var(--ink); color: var(--porcelain); padding: 12px 15px; font-size: .75rem; font-weight: 700; letter-spacing: .07em; text-decoration: none; text-transform: uppercase; }
 
 @media (max-width: 760px) {
-  .page-shell, .reader-shell { width: min(100% - 32px, 1180px); }.site-header { min-height: 70px; gap: 12px 18px; flex-wrap: wrap; padding: 10px 0; }.wordmark { font-size: 1.9rem; }.brand-logo { width: 138px; height: 46px; }.brand-logo__art, .brand-logo img { width: 138px; height: 138px; }.site-header nav { flex: 1 1 420px; flex-wrap: wrap; gap: 7px 18px; }.site-header nav a { padding: 7px 0 9px; }.date-label { margin-left: auto; }
+  .page-shell, .reader-shell { width: min(100% - 32px, 1180px); }.site-header { min-height: 70px; gap: 12px 18px; flex-wrap: wrap; padding: 10px 0; }.wordmark { font-size: 1.9rem; }.brand-logo { width: 138px; height: 46px; }.brand-logo__art, .brand-logo img { width: 138px; height: 138px; }.site-header nav { flex: 1 1 420px; }.site-header__nav { flex-wrap: wrap; gap: 7px 18px; }.site-header nav a { padding: 7px 0 9px; }.site-header__subnav { margin-top: -3px; }.date-label { margin-left: auto; }
   .home-intro { display: block; padding: 56px 0 32px; }.home-intro h1 { font-size: clamp(3.3rem, 17vw, 5.5rem); }.home-intro > p:last-child { margin-top: 22px; }
   .archive-intro, .saved-intro { display: block; padding: 48px 0 28px; }.archive-intro > p:last-child, .saved-intro > p:last-child { margin-top: 22px; }.archive-toolbar { align-items: flex-start; flex-direction: column; gap: 12px; }.archive-day { display: block; padding: 25px 0; }.archive-day__articles, .saved-list { display: block; margin-top: 16px; }
   .hero-section { padding-top: 12px; }.hero-article { min-height: 610px; }.hero-article__content { width: 100%; padding: 30px 24px 88px; }.hero-article h2 { font-size: clamp(3rem, 15vw, 4.6rem); }.hero-article__dek { font-size: 1.05rem; }.hero-article__footer { align-items: flex-start; flex-direction: column; gap: 18px; }.hero-article__credit { bottom: 18px; }.hero-article__shade { background: linear-gradient(0deg, rgba(17,29,36,.88), rgba(17,29,36,.13) 90%); }
@@ -446,7 +451,7 @@ html[data-theme="dark"] .hero-article__cta { background: #e4f0d0; color: #203139
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }.floating-menu.has-running-operation .floating-menu__toggle::before { animation: none; } }
 
 @media (max-width: 440px) {
-  .site-header nav { flex-basis: 100%; justify-content: space-between; gap: 4px 11px; }
+  .site-header nav { flex-basis: 100%; }.site-header__nav { justify-content: space-between; gap: 4px 11px; }
   .site-header nav a { font-size: .68rem; }
   .site-header .date-label { display: none; }
 }
